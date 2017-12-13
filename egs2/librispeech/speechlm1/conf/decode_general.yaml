@@ -1,0 +1,25 @@
+nproc: 2
+dtype: bfloat16
+
+inference_last_segment: false
+
+codec_ssl:
+    search_algo: topk_sampling
+    sampling_temperature: 0.8
+    topk: 30
+    length_method: absolute
+    maxlen: 2048
+    minlen: 3
+    tokenizer:
+      codec_choice: bigvgan
+      codec_fs: 16000
+      codec_checkpoint_path: bigvgan/checkpoints/model.ckpt
+      codec_config_path: bigvgan/checkpoints/config.json
+  
+text_bpe:
+    search_algo: greedy_search
+    sampling_temperature: 0.8
+    topk: 20
+    length_method: absolute
+    maxlen: 2048
+    minlen: 1
