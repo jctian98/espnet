@@ -30,6 +30,9 @@ class CTC(torch.nn.Module):
         brctc_risk_strategy: str = "exp",
         brctc_group_strategy: str = "end",
         brctc_risk_factor: float = 0.0,
+        stc_p0: float = 0.4,
+        stc_plast: float = 0.7,
+        stc_thalf: int = 80000,
     ):
         assert check_argument_types()
         super().__init__()
@@ -64,6 +67,22 @@ class CTC(torch.nn.Module):
 
             self.ctc_loss = BayesRiskCTC(
                 brctc_risk_strategy, brctc_group_strategy, brctc_risk_factor
+            )
+
+        elif self.ctc_type == "stc":
+            try:
+                import gtn
+            except:
+                raise ImportError("You should install GTN to use Start CTC (STC)")
+
+            from espnet2.asr.stc import STC
+
+            self.ctc_loss = STC(
+                blank_idx=0,
+                p0=stc_p0,
+                plast=stc_plast,
+                thalf=stc_thalf,
+                reduction="mean",
             )
 
         else:
@@ -146,6 +165,10 @@ class CTC(torch.nn.Module):
             log_probs = torch.nn.functional.log_softmax(th_pred, dim=2)
             return self.ctc_loss(log_probs, th_target, th_ilen, 0, "none")
 
+        elif self.ctc_type == "stc":
+            log_probs = torch.nn.functional.log_softmax(th_pred, dim=2)
+            return self.ctc_loss(log_probs, th_target)
+
         else:
             raise NotImplementedError
 
@@ -170,6 +193,11 @@ class CTC(torch.nn.Module):
         elif self.ctc_type == "gtnctc":
             # gtn expects list form for ys
             ys_true = [y[y != -1] for y in ys_pad]  # parse padded ys
+
+        elif self.ctc_type == "stc":
+            ys_hat = ys_hat.transpose(0, 1)
+            ys_true = [y[y != -1].cpu().tolist() for y in ys_pad]
+
         else:
             # ys_hat: (B, L, D) -> (L, B, D)
             ys_hat = ys_hat.transpose(0, 1)

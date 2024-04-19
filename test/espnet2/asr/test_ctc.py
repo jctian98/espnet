@@ -53,3 +53,16 @@ def test_bayes_risk_ctc(ctc_args):
     bayes_risk_ctc_loss = bayes_risk_ctc(*ctc_args)
 
     assert torch.abs(builtin_ctc_loss - bayes_risk_ctc_loss) < 1e-6
+
+
+@pytest.mark.timeout(50)
+def test_stc(ctc_args):
+    # Skip the test if GTN is not installed
+    try:
+        import gtn
+    except ImportError:
+        return
+    
+    stc = CTC(encoder_output_size=10, odim=5, ctc_type="stc")
+    stc(*ctc_args)
+    stc.argmax(ctc_args[0])
