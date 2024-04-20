@@ -72,7 +72,7 @@ class STCLossFunction(torch.autograd.Function):
         def process(b):
             # create emission graph
             g_emissions = gtn.linear_graph(
-                T, Cstar, inputs.requires_grad
+                T, Cstar, gtn.Device(gtn.CPU), inputs.requires_grad
             )
             cpu_data = inputs[b].cpu().contiguous()
             g_emissions.set_weights(cpu_data.data_ptr())
