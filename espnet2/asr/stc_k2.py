@@ -38,7 +38,6 @@ class StarCTC(torch.nn.Module):
         indices = indices[valid_sample_indices]
         nnet_output, hlens = nnet_output[indices], hlens[indices]
         ys = [ys[i.item()] for i in valid_sample_indices]
-
         nnet_output = self.organize_nnet_output(nnet_output)
 
         # Core implementation
@@ -142,16 +141,23 @@ class StarCTC(torch.nn.Module):
             prev = None
 
             for i in range(ylen):
+                y.append(y_pad[i])
+
                 if y_pad[i] == self.star_id:
                     continue
 
-                y.append(y_pad[i])
                 min_hlen += 1
 
                 if y_pad[i] == prev:
                     min_hlen += 1
 
                 prev = y_pad[i]
+            
+            # start and end cannot be star_id.
+            if y[0] == self.star_id:
+                y = y[1:]
+            if y[-1] == self.star_id:
+                y = y[:-1]
 
             ys.append(y)
             min_hlens.append(min_hlen)
@@ -169,5 +175,14 @@ class StarCTC(torch.nn.Module):
         non_blank_each = log_sub_exp(non_blank, nnet_output[..., 1:])
 
         return torch.cat([nnet_output, non_blank, non_blank_each], dim=-1)
+
+if __name__ == "__main__":
+    nnet_output = torch.rand(1, 5, 5).log_softmax(dim=-1)
+    ys_pad = torch.Tensor([[4, 2, 4, 1]]).long()
+    ylen = torch.Tensor([4]).long()
+    hlen = torch.Tensor([5]).long()
+
+    ctc = StarCTC(vocab_size=5, star_id=4, star_penalty=-0.4)
+    _ = ctc(nnet_output, ys_pad, hlen, ylen)
 
     
