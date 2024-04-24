@@ -428,6 +428,7 @@ class Speech2Text:
             speech = speech[:speech_length]
         else:
             speech = F.pad(speech, (0, speech_length - speech.size(-1)))
+            print("pad the speech to : ", speech.size(), flush=True)
 
         # Batchify input
         # speech: (nsamples,) -> (1, nsamples)
@@ -531,7 +532,6 @@ class Speech2Text:
         end_time_threshold: str = "<29.00>",
         lang_sym: Optional[str] = None,
         task_sym: Optional[str] = None,
-        skip_last_chunk_threshold: float = 0.2,
     ):
         """Decode unsegmented long-form speech.
 
@@ -567,6 +567,8 @@ class Speech2Text:
         if isinstance(speech, np.ndarray):
             speech = torch.tensor(speech)
 
+        if speech.dim() == 2 and speech.size(1) == 1:
+            speech = speech.squeeze(1)
         assert (
             speech.dim() == 1
         ), f"speech must have one dimension, got size {speech.size()} instead"
@@ -574,17 +576,20 @@ class Speech2Text:
         utterances = []
         offset = 0
         text_prev = init_text
+        logging.info("Decoding start")
+        logging.info(f"Speech total lengths: {speech.size()}")
         while offset < len(speech):
             logging.info(f"Current start time in seconds: {offset / fs:.2f}")
+
             segment = speech[offset : offset + segment_len]
-            if len(segment) / fs < skip_last_chunk_threshold:
+            logging.info(f"speech segment length: {segment.size()}")
+            if offset + segment_len > len(speech) and len(segment) / fs < 0.2:
                 logging.warning(
-                    f"Skip the last chunk as it's too short: {len(segment) / fs:.2f}s"
+                    f"Skip the last clip as it's too short: only {len(segment)/ fs:.2f} second"
                 )
                 offset += segment_len
                 continue
 
-            segment = speech[offset : offset + segment_len]
             # segment will be padded in __call__
             result = self.__call__(
                 speech=segment,
@@ -645,11 +650,13 @@ class Speech2Text:
                         )
                     ),
                 )
+                print(f"Decode get utterance: {utt}", flush=True)
                 text_prev = text_prev + utt[-1]
                 utterances.append(utt)
 
             offset += round((new_start_time_id - first_time_id) * resolution * fs)
             self.time_id = first_time_id
+            print(f"move to next trunck wih offset {offset}")
 
         return utterances
 
@@ -781,13 +788,15 @@ def inference(
     )
 
     # 3. Build data-iterator
+    # (Jinchuan): for long-form decoding, disable preprocess_fn so the length of
+    # input speech can be variable.
     loader = S2TTask.build_streaming_iterator(
         data_path_and_name_and_type,
         dtype=dtype,
         batch_size=batch_size,
         key_file=key_file,
         num_workers=num_workers,
-        preprocess_fn=S2TTask.build_preprocess_fn(speech2text.s2t_train_args, False),
+        preprocess_fn=None,
         collate_fn=S2TTask.build_collate_fn(speech2text.s2t_train_args, False),
         allow_variable_data_keys=allow_variable_data_keys,
         inference=True,
@@ -802,14 +811,14 @@ def inference(
             _bs = len(next(iter(batch.values())))
             assert len(keys) == _bs, f"{len(keys)} != {_bs}"
             batch = {k: v[0] for k, v in batch.items() if not k.endswith("_lengths")}
+            logging.info(f'length in batch: {batch["speech"].size()}')
 
             # N-best list of (text, token, token_int, text_nospecial, hyp_object)
             try:
-                results = speech2text(**batch)
+                results = speech2text.decode_long(**batch)
             except TooShortUttError as e:
                 logging.warning(f"Utterance {keys} {e}")
-                hyp = Hypothesis(score=0.0, scores={}, states={}, yseq=[])
-                results = [[" ", ["<space>"], [2], " ", hyp]] * nbest
+                results = [(0.0, 0.0, "")]
 
             # Only supporting batch_size==1
             key = keys[0]
@@ -817,30 +826,13 @@ def inference(
             if isinstance(results, tuple):
                 results, encoder_interctc_res = results
 
-            for n, (text, token, token_int, text_nospecial, hyp) in zip(
-                range(1, nbest + 1), results
-            ):
-                # Create a directory: outdir/{n}best_recog
-                ibest_writer = writer[f"{n}best_recog"]
-
-                # Write the result to each file
-                ibest_writer["token"][key] = " ".join(token)
-                ibest_writer["token_int"][key] = " ".join(map(str, token_int))
-                ibest_writer["score"][key] = str(hyp.score)
-
-                if text is not None:
-                    ibest_writer["text"][key] = text
-                if text_nospecial is not None:
-                    ibest_writer["text_nospecial"][key] = text_nospecial
-
-            # Write intermediate predictions to
-            # encoder_interctc_layer<layer_idx>.txt
-            ibest_writer = writer[f"1best_recog"]
-            if encoder_interctc_res is not None:
-                for idx, text in encoder_interctc_res.items():
-                    ibest_writer[f"encoder_interctc_layer{idx}.txt"][key] = " ".join(
-                        text
-                    )
+            text, text_with_time = "", ""
+            for start, end, this_text in results:
+                text = text + " " + this_text
+                text_with_time = text_with_time + " " + f"<{start}>{this_text}<{end}>"
+            ibest_writer = writer["1best_recog"]
+            ibest_writer["text_nospecial"][key] = text
+            ibest_writer["text"][key] = text_with_time
 
 
 def get_parser():
