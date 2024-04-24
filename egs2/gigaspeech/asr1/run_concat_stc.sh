@@ -5,11 +5,11 @@ set -e
 set -u
 set -o pipefail
 
-train_set="train"
-valid_set="dev"
-test_sets="test"
+train_set="train_v5_nosym"
+valid_set="dev_v5"
+test_sets="test_v5"
 
-asr_config=conf/tuning/train_asr_e_branchformer_owsm_base.yaml
+asr_config=conf/tuning/train_asr_e_branchformer_owsm_base_stc.yaml
 lm_config=conf/train_lm.yaml
 inference_config=conf/decode_asr.yaml
 
@@ -23,7 +23,7 @@ speed_perturb_factors=""
     --ngpu 2 \
     --nj 64 \
     --gpu_inference true \
-    --inference_nj 4 \
+    --inference_nj 5 \
     --use_lm false \
     --nbpe 5000 \
     --max_wav_duration 30 \
@@ -35,4 +35,6 @@ speed_perturb_factors=""
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \
     --bpe_train_text "data/${train_set}/text" \
+    --asr_stats_dir exp/concat_nosym_stats \
+    --bpe_nlsyms data/${train_set}/nlsyms.txt \
     --local_score_opts "--inference_config ${inference_config} --use_lm false" "$@"

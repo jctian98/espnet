@@ -5,9 +5,9 @@ set -e
 set -u
 set -o pipefail
 
-train_set=train
-valid_set=dev
-test_sets=dev
+train_set=train_v4
+valid_set=dev_v4
+test_sets=test
 
 nbpe=5000
 # s2t_config=conf/train_s2t_ebf_conv2d_size1024_e18_d18_piecewise_lr2e-4_warmup60k_flashattn.yaml
@@ -35,4 +35,6 @@ inference_config=conf/decode_s2t.yaml
     --test_sets "${test_sets}" \
     --bpe_train_text "dump/raw/${train_set}/text" \
     --bpe_nlsyms data/${train_set}/nlsyms.txt \
+    --s2t_stats_dir exp/stats_v4 \
+    --s2t_args "--num_iters_per_epoch 500" \
     --lm_train_text "dump/raw/${train_set}/text" "$@"
