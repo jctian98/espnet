@@ -105,12 +105,7 @@ class StarCTC(torch.nn.Module):
         return fsas
     
     def graph(self, labels):
-        # (1) organize the star token. Star token is not a independent token.
-        #     Instead, it means the token follows it can have any possible prefix.
-
-        # print('labels ', labels)
-        # draw_graph = self.star_id in labels
-
+        # (1) organize the star token.
         if self.standard_ctc:
             assert self.star_id not in labels, "Star is not allowed in vanilla CTC"
         else:
@@ -132,12 +127,13 @@ class StarCTC(torch.nn.Module):
 
         idx = 0
         string = ''
+        p = self.p if self.training else -10000 # valid loss should be standard CTC
 
         # (1) starting block
         label, with_star = labels[0]
         string += f'{idx} {idx} 0 0\n'
         if with_star:
-            string += f'{idx} {idx} {self.v} {self.p}\n'
+            string += f'{idx} {idx} {self.v} {p}\n'
         string += f'{idx} {idx + 1} {label} 0\n'
         string += f'{idx + 1} {idx + 1} {label} 0\n'
         idx += 1
@@ -153,10 +149,10 @@ class StarCTC(torch.nn.Module):
             # (2.2) Go with blank inserted
             string += f'{idx} {idx + 1} 0 0\n'
             if with_star:
-                string += f'{idx} {idx + 1} {prev_label + self.v} {self.p}\n'
+                string += f'{idx} {idx + 1} {prev_label + self.v} {p}\n'
             string += f'{idx + 1} {idx + 1} 0 0\n'
             if with_star:
-                string += f'{idx + 1} {idx + 1} {self.v} {self.p}\n'
+                string += f'{idx + 1} {idx + 1} {self.v} {p}\n'
             string += f'{idx + 1} {idx + 2} {label} 0\n'
 
             # (2.3) self-loop. Skip the endding node.
@@ -167,13 +163,7 @@ class StarCTC(torch.nn.Module):
         
         # (3) final state node
         string += f'{idx}'
-
         graph = k2.Fsa.from_str(string, acceptor=True)
-
-        # if draw_graph:
-        #     graph = k2.arc_sort(graph)
-        #     graph.draw('stc.pdf')
-        #     assert 1 == 2
         return graph
     
     def organize_nnet_output(self, nnet_output):
