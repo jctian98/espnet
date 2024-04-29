@@ -97,8 +97,8 @@ class CTC(torch.nn.Module):
             self.ctc_loss = StarCTC(
                 vocab_size=odim,
                 star_id=stc_star_id,
-                star_penalty=stc_p0,
-                ctc_type='stc',
+                penalty=stc_p0,
+                standard_ctc=False,
             )
 
         else:
@@ -197,6 +197,18 @@ class CTC(torch.nn.Module):
             ys_pad: batch of padded character id sequence tensor (B, Lmax)
             ys_lens: batch of lengths of character sequence (B)
         """
+
+        # debug 
+        # from espnet.nets.pytorch_backend.nets_utils import pad_list
+        # new_ys, new_lengths = [], []
+        # for y in ys_pad.cpu().tolist():
+        #     y = [s for s in y if s!= -1 and s != 2]
+        #     y = torch.Tensor(y).long()
+        #     new_ys.append(y)
+        #     new_lengths.append(len(y))
+        # ys_pad = pad_list(new_ys, pad_value=-1).long().to(hs_pad.device)
+        # ys_lens = torch.Tensor(new_lengths).long().to(hs_pad.device)
+
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
         ys_hat = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate))
 

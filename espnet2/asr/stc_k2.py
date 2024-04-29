@@ -15,12 +15,14 @@ class StarCTC(torch.nn.Module):
         vocab_size: int,
         star_id: int,
         penalty: float = 0.0,
+        standard_ctc: bool = True
     ):
         super().__init__()
 
-        self.vocab_size = vocab_size
+        self.v = vocab_size
         self.star_id = star_id
-        self.penalty = penalty
+        self.p = penalty
+        self.standard_ctc = standard_ctc
 
     def forward(self, nnet_output, ys_pad, hlens, ylens):
         # Reorder and filter out invalid examples:
@@ -39,6 +41,9 @@ class StarCTC(torch.nn.Module):
         indices = indices[valid_sample_indices]
         nnet_output, hlens, ylens = nnet_output[indices], hlens[indices], ylens[indices]
         ys = [ys[i.item()] for i in valid_sample_indices]
+
+        assert nnet_output.size(2) == self.v, f"Invalid input size: {nnet_output.size()}"
+        nnet_output = self.organize_nnet_output(nnet_output)
 
         # Core implementation
         loss_utt = self.forward_core(nnet_output, ys, hlens, ylens)
@@ -100,21 +105,46 @@ class StarCTC(torch.nn.Module):
         return fsas
     
     def graph(self, labels):
-        print('build graph for: ', labels)
+        # (1) organize the star token. Star token is not a independent token.
+        #     Instead, it means the token follows it can have any possible prefix.
+
+        # print('labels ', labels)
+        # draw_graph = self.star_id in labels
+
+        if self.standard_ctc:
+            assert self.star_id not in labels, "Star is not allowed in vanilla CTC"
+        else:
+            if labels[0] != self.star_id:
+                labels = [self.star_id] + labels
+            if labels[-1] != self.star_id:
+                labels = labels + [self.star_id]
         labels = labels + [-1]
+
+        new_labels = []
+        with_star = False
+        for label in labels:
+            if label == self.star_id:
+                with_star = True
+            else:
+                new_labels.append((label, with_star))
+                with_star = False
+        labels = new_labels
 
         idx = 0
         string = ''
 
         # (1) starting block
+        label, with_star = labels[0]
         string += f'{idx} {idx} 0 0\n'
-        string += f'{idx} {idx + 1} {labels[0]} 0\n'
-        string += f'{idx + 1} {idx + 1} {labels[0]} 0\n'
+        if with_star:
+            string += f'{idx} {idx} {self.v} {self.p}\n'
+        string += f'{idx} {idx + 1} {label} 0\n'
+        string += f'{idx + 1} {idx + 1} {label} 0\n'
         idx += 1
-        prev_label = labels[0]
+        prev_label = label
 
         # (2) all the remained blocks
-        for count, label in enumerate(labels[1:]):
+        for count, (label, with_star) in enumerate(labels[1:]):
 
             # (2.1) Go directly without blank
             if label != prev_label:
@@ -122,7 +152,11 @@ class StarCTC(torch.nn.Module):
             
             # (2.2) Go with blank inserted
             string += f'{idx} {idx + 1} 0 0\n'
+            if with_star:
+                string += f'{idx} {idx + 1} {prev_label + self.v} {self.p}\n'
             string += f'{idx + 1} {idx + 1} 0 0\n'
+            if with_star:
+                string += f'{idx + 1} {idx + 1} {self.v} {self.p}\n'
             string += f'{idx + 1} {idx + 2} {label} 0\n'
 
             # (2.3) self-loop. Skip the endding node.
@@ -133,5 +167,40 @@ class StarCTC(torch.nn.Module):
         
         # (3) final state node
         string += f'{idx}'
+
         graph = k2.Fsa.from_str(string, acceptor=True)
+
+        # if draw_graph:
+        #     graph = k2.arc_sort(graph)
+        #     graph.draw('stc.pdf')
+        #     assert 1 == 2
         return graph
+    
+    def organize_nnet_output(self, nnet_output):
+        def log_sub_exp(a, b):
+            max_ab = torch.max(a, b)
+            return  max_ab + torch.log(torch.exp(a - max_ab) - torch.exp(b - max_ab))
+        
+        non_blank = torch.logsumexp(nnet_output[..., 1:], dim=-1, keepdim=True)
+        non_blank_each = log_sub_exp(non_blank, nnet_output[..., 1:])
+
+        return torch.cat([nnet_output, non_blank, non_blank_each], dim=-1)
+
+if __name__ == "__main__":
+    hidden_output = torch.rand(1, 7, 5).log_softmax(dim=-1)
+    ys_pad = torch.Tensor([[2, 4, 2, 1]]).long()
+    ylen = torch.Tensor([4]).long()
+    hlen = torch.Tensor([7]).long()
+
+    ctc = StarCTC(vocab_size=5, star_id=4, penalty=-0.4, standard_ctc=False)
+    ctc_k2 = ctc(hidden_output, ys_pad, hlen, ylen)
+    print('k2 loss: ', ctc_k2)
+
+    builtin_loss = torch.nn.functional.ctc_loss(
+        log_probs=hidden_output.transpose(0, 1),
+        targets=ys_pad,
+        input_lengths=hlen,
+        target_lengths=ylen,
+        reduction="none"
+    )
+    print(builtin_loss, 'builtin loss')
