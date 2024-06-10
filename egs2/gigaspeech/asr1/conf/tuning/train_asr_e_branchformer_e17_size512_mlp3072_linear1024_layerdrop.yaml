@@ -3,17 +3,19 @@
 # egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml
 
 batch_type: numel
-batch_bins: 35000000
-accum_grad: 4
-max_epoch: 30
+batch_bins: 50000000
+accum_grad: 2
+max_epoch: 50
 patience: none
 init: none
+log_interval: 1000
+
 best_model_criterion:
 -   - valid
     - acc
     - max
 keep_nbest_models: 10
-num_workers: 4
+num_workers: 8
 unused_parameters: true
 
 encoder: e_branchformer
@@ -84,3 +86,4 @@ specaug_conf:
     - 0
     - 40
     num_time_mask: 2
+use_amp: true
