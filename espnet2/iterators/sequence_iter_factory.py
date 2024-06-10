@@ -161,5 +161,6 @@ class SequenceIterFactory(AbsIterFactory):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             worker_init_fn=partial(worker_init_fn, base_seed=epoch + self.seed),
+            prefetch_factor=30,
             **kwargs,
         )

@@ -5,7 +5,7 @@ set -e
 set -u
 set -o pipefail
 
-train_set="train_m"
+train_set="train_m_long"
 valid_set="dev_long"
 test_sets="dev_long test_long dev test"
 
@@ -28,6 +28,7 @@ speed_perturb_factors=""
     --nbpe 5000 \
     --max_wav_duration 30 \
     --bpe_nlsyms "<sep>" \
+    --asr_stats_dir exp/asr_stats_long \
     --speed_perturb_factors "${speed_perturb_factors}" \
     --asr_config "${asr_config}" \
     --lm_config "${lm_config}" \
