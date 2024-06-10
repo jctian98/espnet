@@ -15,7 +15,8 @@ class StarCTC(torch.nn.Module):
         vocab_size: int,
         star_id: int,
         penalty: float = 0.0,
-        standard_ctc: bool = True
+        standard_ctc: bool = False,
+        flexible_start_end = True,
     ):
         super().__init__()
 
@@ -23,6 +24,7 @@ class StarCTC(torch.nn.Module):
         self.star_id = star_id
         self.p = penalty
         self.standard_ctc = standard_ctc
+        self.flexible_start_end = flexible_start_end
 
     def forward(self, nnet_output, ys_pad, hlens, ylens):
         # Reorder and filter out invalid examples:
@@ -109,10 +111,11 @@ class StarCTC(torch.nn.Module):
         if self.standard_ctc:
             assert self.star_id not in labels, "Star is not allowed in vanilla CTC"
         else:
-            if labels[0] != self.star_id:
-                labels = [self.star_id] + labels
-            if labels[-1] != self.star_id:
-                labels = labels + [self.star_id]
+            if self.flexible_start_end:
+                if labels[0] != self.star_id:
+                    labels = [self.star_id] + labels
+                if labels[-1] != self.star_id:
+                    labels = labels + [self.star_id]
         labels = labels + [-1]
 
         new_labels = []

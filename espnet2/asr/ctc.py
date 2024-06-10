@@ -34,6 +34,7 @@ class CTC(torch.nn.Module):
         stc_plast: float = 0.7,
         stc_thalf: int = 80000,
         stc_star_id: int = 1,
+        stc_flexible_start_end: bool = True,
     ):
         assert check_argument_types()
         super().__init__()
@@ -99,6 +100,7 @@ class CTC(torch.nn.Module):
                 star_id=stc_star_id,
                 penalty=stc_p0,
                 standard_ctc=False,
+                flexible_start_end=stc_flexible_start_end,
             )
 
         else:
