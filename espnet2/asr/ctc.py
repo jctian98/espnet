@@ -18,7 +18,6 @@ class CTC(torch.nn.Module):
         ignore_nan_grad: Same as zero_infinity (keeping for backward compatiblity)
         zero_infinity:  Whether to zero infinite losses and the associated gradients.
     """
-
     @typechecked
     def __init__(
         self,
@@ -32,6 +31,11 @@ class CTC(torch.nn.Module):
         brctc_risk_strategy: str = "exp",
         brctc_group_strategy: str = "end",
         brctc_risk_factor: float = 0.0,
+        stc_p0: float = 0.4,
+        stc_plast: float = 0.7,
+        stc_thalf: int = 80000,
+        stc_star_id: int = 1,
+        stc_flexible_start_end: bool = True,
     ):
         super().__init__()
         eprojs = encoder_output_size
@@ -67,13 +71,44 @@ class CTC(torch.nn.Module):
                 brctc_risk_strategy, brctc_group_strategy, brctc_risk_factor
             )
 
+        elif self.ctc_type == "stc":
+            try:
+                import gtn
+            except:
+                raise ImportError("You should install GTN to use Start CTC (STC)")
+
+            from espnet2.asr.stc import STC
+
+            self.ctc_loss = STC(
+                blank_idx=0,
+                p0=stc_p0,
+                plast=stc_plast,
+                thalf=stc_thalf,
+                reduction="none",
+            )
+        
+        elif self.ctc_type == "star_ctc":
+            try:
+                import k2
+            except ImportError:
+                raise ImportError("You should install K2 to use Star CTC")
+
+            from espnet2.asr.star_ctc import StarCTC
+
+            self.ctc_loss = StarCTC(
+                vocab_size=odim,
+                star_id=stc_star_id,
+                penalty=stc_p0,
+                flexible_start_end=stc_flexible_start_end,
+            )
+
         else:
-            raise ValueError(f'ctc_type must be "builtin" or "gtnctc": {self.ctc_type}')
+            raise ValueError(f'Unsupported CTC type": {self.ctc_type}')
 
         self.reduce = reduce
 
     def loss_fn(self, th_pred, th_target, th_ilen, th_olen) -> torch.Tensor:
-        if self.ctc_type == "builtin" or self.ctc_type == "brctc":
+        if self.ctc_type in ['builtin', 'brctc', 'star_ctc']:
             th_pred = th_pred.log_softmax(2)
             loss = self.ctc_loss(th_pred, th_target, th_ilen, th_olen)
             if self.ctc_type == "builtin":
@@ -147,6 +182,10 @@ class CTC(torch.nn.Module):
             log_probs = torch.nn.functional.log_softmax(th_pred, dim=2)
             return self.ctc_loss(log_probs, th_target, th_ilen, 0, "none")
 
+        elif self.ctc_type == "stc":
+            log_probs = torch.nn.functional.log_softmax(th_pred, dim=2)
+            return self.ctc_loss(log_probs, th_target).mean()
+
         else:
             raise NotImplementedError
 
@@ -159,10 +198,11 @@ class CTC(torch.nn.Module):
             ys_pad: batch of padded character id sequence tensor (B, Lmax)
             ys_lens: batch of lengths of character sequence (B)
         """
+
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
         ys_hat = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate))
 
-        if self.ctc_type == "brctc":
+        if self.ctc_type in ['brctc', 'star_ctc']:
             loss = self.loss_fn(ys_hat, ys_pad, hlens, ys_lens).to(
                 device=hs_pad.device, dtype=hs_pad.dtype
             )
@@ -171,6 +211,11 @@ class CTC(torch.nn.Module):
         elif self.ctc_type == "gtnctc":
             # gtn expects list form for ys
             ys_true = [y[y != -1] for y in ys_pad]  # parse padded ys
+
+        elif self.ctc_type == "stc":
+            ys_hat = ys_hat.transpose(0, 1)
+            ys_true = [y[y != -1].cpu().tolist() for y in ys_pad]
+
         else:
             # ys_hat: (B, L, D) -> (L, B, D)
             ys_hat = ys_hat.transpose(0, 1)

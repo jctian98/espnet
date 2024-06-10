@@ -53,6 +53,10 @@ decoder_conf:
     layer_drop_rate: 0.2
 
 ctc_conf:
+    ctc_type: star_ctc
+    stc_star_id: 2 # set this manually based on your vocab
+    stc_p0: 0.4 # penalty
+    stc_flexible_start_end: true
     ignore_nan_grad: true
 
 model_conf:

@@ -9,7 +9,7 @@ train_set="train_m_long"
 valid_set="dev_long"
 test_sets="dev_long test_long dev test"
 
-asr_config=conf/train_asr_e_branchformer.yaml
+asr_config=conf/train_asr_e_branchformer_long.yaml
 lm_config=conf/train_lm.yaml
 inference_config=conf/decode_asr.yaml
 
@@ -36,5 +36,5 @@ speed_perturb_factors=""
     --train_set "${train_set}" \
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \
-    --bpe_train_text "data/${train_set}/text" \
+    --bpe_train_text "dump/raw/${train_set}/text" \
     --local_score_opts "--inference_config ${inference_config} --use_lm false" "$@"

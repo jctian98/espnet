@@ -35,5 +35,5 @@ speed_perturb_factors=""
     --train_set "${train_set}" \
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \
-    --bpe_train_text "data/${train_set}/text" \
+    --bpe_train_text "dump/raw/${train_set}/text" \
     --local_score_opts "--inference_config ${inference_config} --use_lm false" "$@"
