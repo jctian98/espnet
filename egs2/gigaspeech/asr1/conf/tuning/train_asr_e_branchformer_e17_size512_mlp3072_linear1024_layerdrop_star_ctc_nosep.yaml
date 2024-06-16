@@ -53,7 +53,9 @@ decoder_conf:
     layer_drop_rate: 0.2
 
 ctc_conf:
-    ignore_nan_grad: true
+    ctc_type: star_ctc
+    stc_star_id: 2 # set this manually based on your vocab
+    stc_standard_ctc: true
 
 model_conf:
     ctc_weight: 0.3

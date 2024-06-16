@@ -29,7 +29,7 @@ def merge_short_utterances(
         f"{wav_id}_{round(1000 * start_time):09d}_"
         f"{round(1000 * end_time):09d}"
     )
-    text = " <sep> ".join([u.text for u in utts])
+    text = "<sep> ".join([u.text for u in utts])
 
     if force_long_and_continuous:
         if end_time - start_time > max_thre or end_time - start_time < min_thre:

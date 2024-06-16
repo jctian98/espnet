@@ -5,11 +5,11 @@ set -e
 set -u
 set -o pipefail
 
-train_set="train_m_long"
+train_set="train_m_long_nosep"
 valid_set="dev_long_nosep"
 test_sets="dev_long_nosep test_long_nosep dev test"
 
-asr_config=conf/train_asr_e_branchformer_long.yaml
+asr_config=conf/train_asr_e_branchformer_long_nosep.yaml
 # asr_config=conf/train_asr_e_branchformer.yaml
 lm_config=conf/train_lm.yaml
 inference_config=conf/decode_asr.yaml
@@ -29,7 +29,7 @@ speed_perturb_factors=""
     --nbpe 5000 \
     --max_wav_duration 30 \
     --bpe_nlsyms "<sep>" \
-    --asr_stats_dir exp/asr_stats_long \
+    --asr_stats_dir exp/asr_stats_long_nosep \
     --speed_perturb_factors "${speed_perturb_factors}" \
     --asr_config "${asr_config}" \
     --lm_config "${lm_config}" \

@@ -6,8 +6,8 @@ set -u
 set -o pipefail
 
 train_set="train_m"
-valid_set="dev_long"
-test_sets="dev_long test_long dev test"
+valid_set="dev"
+test_sets="dev_long_nosep test_long_nosep dev test"
 
 asr_config=conf/train_asr_e_branchformer.yaml
 lm_config=conf/train_lm.yaml

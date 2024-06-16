@@ -36,6 +36,7 @@ class CTC(torch.nn.Module):
         stc_thalf: int = 80000,
         stc_star_id: int = 1,
         stc_flexible_start_end: bool = True,
+        stc_standard_ctc: bool = False,
     ):
         super().__init__()
         eprojs = encoder_output_size
@@ -99,6 +100,7 @@ class CTC(torch.nn.Module):
                 vocab_size=odim,
                 star_id=stc_star_id,
                 penalty=stc_p0,
+                standard_ctc=stc_standard_ctc,
                 flexible_start_end=stc_flexible_start_end,
             )
 
