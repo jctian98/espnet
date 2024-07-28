@@ -131,11 +131,15 @@ class CodecEmbedding(AbsFrontend):
     def __init__(
         self,
         input_size,
-        hf_model_tag: str = "espnet/amuse_encodec_16k",
         token_bias: int = 2,
         patch_size: int = 8,
         pos_enc_class=PositionalEncoding,
         positional_dropout_rate: float = 0.1,
+        codec_conf: dict = {
+            "codec_choice": "ESPnet",
+            "codec_fs": 16000,
+            "hf_model_tag": "espnet/amuse_encodec_16k",
+        },
     ):
         """Initialize.
 
@@ -148,13 +152,19 @@ class CodecEmbedding(AbsFrontend):
 
         super().__init__()
 
-        from espnet2.bin.gan_codec_inference import AudioCoding
+        from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
 
-        model = AudioCoding.from_pretrained(model_tag=hf_model_tag).model
-        self.quantizer = model.codec.generator.quantizer
-        self.codebook_size = self.quantizer.bins
-        self.codebook_dim = self.quantizer.codebook_dim
+        model = CodecTokenizer(**codec_conf)
+        if model.codec_choice == "DAC" or model.codec_choice == "EnCodec":
+            self.quantizer = model.codec.quantizer
+        elif model.codec_choice == "ESPnet":
+            self.quantizer = model.codec.codec.generator.quantizer
+        else:
+            raise NotImplementedError
+        
         self.token_bias = token_bias
+        self.codebook_size = model.n_codebook
+        self.codebook_dim = model.size_codebook
 
         # NOTE(Jinchuan): make it as an external parameter rather than parsing from
         # the quantizer since not all codebooks will be used all the time.
@@ -164,7 +174,7 @@ class CodecEmbedding(AbsFrontend):
         self.pos = pos_enc_class(self.codebook_dim, positional_dropout_rate)
         self.ln = torch.nn.LayerNorm(self.codebook_dim)
 
-        self.decoder = model.codec.generator.decoder
+        # self.decoder = model.codec.generator.decoder
 
     def forward(
         self,
@@ -202,3 +212,49 @@ class CodecEmbedding(AbsFrontend):
     def output_size(self) -> int:
         """Return output length of feature dimension D, i.e. the embedding dim."""
         return self.codebook_dim
+
+
+if __name__ == "__main__":
+    import torch
+    import yaml
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
+    from espnet2.mt.frontend.embedding import CodecEmbedding
+
+    # test Codec Embedding
+    config_paths = [
+        "conf/tuning/train_asr_ebranchformer_DAC.yaml",
+        "conf/tuning/train_asr_ebranchformer_EnCodec.yaml",
+        "conf/tuning/train_asr_ebranchformer_ESPnet.yaml",
+    ]
+    for config_path in config_paths:
+        print(
+            "----------------------------------------------------------------------------------------"
+        )
+        print(f"Config: {config_path}")
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        try:
+            frontend = CodecEmbedding(input_size=16, **config["frontend_conf"])
+        except Exception as e:
+            if isinstance(e, NotImplementedError):
+                print(f"Fail!! Config {config_path} fails to passed.")
+                continue
+            else:
+                raise e
+
+        print(f"Quantizer: {frontend.quantizer}")
+        print(f"Token Bias: {frontend.token_bias}")
+        print(f"Codebook Size: {frontend.codebook_size}")
+        print(f"Codebook Dimension: {frontend.codebook_dim}")
+        print(f"Number of Codebook: {frontend.n_codebook}")
+        print(f"Vocabulary Size: {frontend.vocab_size}")
+
+        print(f"Success !! Config {config_path} passed.")
+        del frontend
+        print(
+            "--------------------------------------------------------------------------------------------"
+        )
