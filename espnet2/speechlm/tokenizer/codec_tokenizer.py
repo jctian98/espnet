@@ -293,6 +293,15 @@ class CodecTokenizer(AbsTokenizer):
             waveform = waveform.squeeze(0)
 
         return waveform
+    
+    def get_quantizer(self):
+        if self.codec_choice == "DAC" or self.codec_choice == "EnCodec":
+            return self.codec.quantizer
+        elif self.codec_choice == "ESPnet":
+            return self.codec.codec.generator.quantizer
+        
+        else:
+            raise NotImplementedError
 
 
 if __name__ == "__main__":

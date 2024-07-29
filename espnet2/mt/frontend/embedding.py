@@ -155,13 +155,8 @@ class CodecEmbedding(AbsFrontend):
         from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
 
         model = CodecTokenizer(**codec_conf)
-        if model.codec_choice == "DAC" or model.codec_choice == "EnCodec":
-            self.quantizer = model.codec.quantizer
-        elif model.codec_choice == "ESPnet":
-            self.quantizer = model.codec.codec.generator.quantizer
-        else:
-            raise NotImplementedError
         
+        self.quantizer = model.get_quantizer()
         self.token_bias = token_bias
         self.codebook_size = model.n_codebook
         self.codebook_dim = model.size_codebook
