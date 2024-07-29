@@ -293,13 +293,48 @@ class CodecTokenizer(AbsTokenizer):
             waveform = waveform.squeeze(0)
 
         return waveform
-    
+
     def get_quantizer(self):
         if self.codec_choice == "DAC" or self.codec_choice == "EnCodec":
             return self.codec.quantizer
         elif self.codec_choice == "ESPnet":
             return self.codec.codec.generator.quantizer
-        
+        else:
+            raise NotImplementedError
+
+    def get_quantizer_decode_fn(self):
+        if self.codec_choice == "ESPnet" or self.codec_choice == "EnCodec":
+            return self.get_quantizer().decode
+        elif self.codec_choice == "DAC":
+            return self.get_quantizer().from_codes
+        else:
+            raise NotImplementedError
+
+    def get_quantizer_decode_permute(self):
+        if self.codec_choice == "ESPnet" or self.codec_choice == "EnCodec":
+            return "b t c -> c b t"
+        elif self.codec_choice == "DAC":
+            return "b t c -> b c t"
+        else:
+            raise NotImplementedError
+
+    def get_codebook_size(self):
+        if self.codec_choice == "EnCodec" or self.codec_choice == "ESPnet":
+            return self.get_quantizer().bins
+        elif self.codec_choice == "DAC":
+            return self.get_quantizer().codebook_size
+        else:
+            raise NotImplementedError
+
+    def get_codebook_dim(self):
+        if self.codec_choice == "EnCodec":
+            return self.get_quantizer().dimension
+        elif self.codec_choice == "ESPnet":
+            return self.get_quantizer().codebook_dim
+        elif self.codec_choice == "DAC":
+            return (
+                self.get_quantizer().codebook_size
+            )  # Check https://github.com/descriptinc/descript-audio-codec/blob/c7cfc5d2647e26471dc394f95846a0830e7bec34/dac/nn/quantize.py#L218
         else:
             raise NotImplementedError
 

@@ -5,13 +5,17 @@
 """Embedding Frontend for text based inputs."""
 
 from typing import Tuple
-
+import logging
 import torch
 from typeguard import typechecked
 
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet.nets.pytorch_backend.transformer.embedding import PositionalEncoding
 
+try:
+    from einops import rearrange
+except:
+    raise ImportError("Please install einops: pip install einops")
 
 class Embedding(AbsFrontend):
     """Embedding Frontend for text based inputs."""
@@ -153,13 +157,16 @@ class CodecEmbedding(AbsFrontend):
         super().__init__()
 
         from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
-
-        model = CodecTokenizer(**codec_conf)
         
+        model = CodecTokenizer(**codec_conf)
+
+        # NOTE (Stan): Add a unified interface to different codec
         self.quantizer = model.get_quantizer()
+        self.quantizer.decode = model.get_quantizer_decode_fn()
+        self.code_permute = model.get_quantizer_decode_permute()
         self.token_bias = token_bias
-        self.codebook_size = model.n_codebook
-        self.codebook_dim = model.size_codebook
+        self.codebook_size = model.get_codebook_size()
+        self.codebook_dim = model.get_codebook_dim()
 
         # NOTE(Jinchuan): make it as an external parameter rather than parsing from
         # the quantizer since not all codebooks will be used all the time.
@@ -183,7 +190,6 @@ class CodecEmbedding(AbsFrontend):
             input_lengths % self.n_codebook,
         )
         assert torch.all(input < self.vocab_size)
-
         B, Tnq = input.size()
         x = input.view(B, Tnq // self.n_codebook, self.n_codebook)
         x = x - self.token_bias
@@ -193,15 +199,20 @@ class CodecEmbedding(AbsFrontend):
         # NOTE (Jinchuan): do this clip so that the dequantization process
         # will not encounter an error. In practice, only the padding values
         # will exceed this range and is ignored due to the length masking.
+
         x = torch.clip(x, min=0, max=self.codebook_size - 1)
 
-        z = self.quantizer.decode(x.permute(2, 0, 1)).permute(0, 2, 1)
+        # NOTE (Stan): Different code need different permutation
+        z = self.quantizer.decode(rearrange(x, self.code_permute))
+        if isinstance(z, tuple):
+            z = z[0]
+        z = rearrange(z, "b d t -> b t d")
 
         z = self.ln(z)
         z = self.pos(z)
 
         input_lengths = input_lengths // self.n_codebook
-
+        assert B == z.size(0), f"Batch size changed, please check permutation"
         return z, input_lengths
 
     def output_size(self) -> int:
@@ -247,6 +258,7 @@ if __name__ == "__main__":
         print(f"Codebook Dimension: {frontend.codebook_dim}")
         print(f"Number of Codebook: {frontend.n_codebook}")
         print(f"Vocabulary Size: {frontend.vocab_size}")
+        print(f"")
 
         print(f"Success !! Config {config_path} passed.")
         del frontend
