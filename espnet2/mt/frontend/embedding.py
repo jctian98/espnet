@@ -5,13 +5,17 @@
 """Embedding Frontend for text based inputs."""
 
 from typing import Tuple
-
+import logging
 import torch
 from typeguard import typechecked
 
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet.nets.pytorch_backend.transformer.embedding import PositionalEncoding
 
+try:
+    from einops import rearrange
+except:
+    raise ImportError("Please install einops: pip install einops")
 
 class Embedding(AbsFrontend):
     """Embedding Frontend for text based inputs."""
@@ -131,11 +135,15 @@ class CodecEmbedding(AbsFrontend):
     def __init__(
         self,
         input_size,
-        hf_model_tag: str = "espnet/amuse_encodec_16k",
         token_bias: int = 2,
         patch_size: int = 8,
         pos_enc_class=PositionalEncoding,
         positional_dropout_rate: float = 0.1,
+        codec_conf: dict = {
+            "codec_choice": "ESPnet",
+            "codec_fs": 16000,
+            "hf_model_tag": "espnet/amuse_encodec_16k",
+        },
     ):
         """Initialize.
 
@@ -148,13 +156,17 @@ class CodecEmbedding(AbsFrontend):
 
         super().__init__()
 
-        from espnet2.bin.gan_codec_inference import AudioCoding
+        from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
+        
+        model = CodecTokenizer(**codec_conf)
 
-        model = AudioCoding.from_pretrained(model_tag=hf_model_tag).model
-        self.quantizer = model.codec.generator.quantizer
-        self.codebook_size = self.quantizer.bins
-        self.codebook_dim = self.quantizer.codebook_dim
+        # NOTE (Stan): Add a unified interface to different codec
+        self.quantizer = model.get_quantizer()
+        self.quantizer.decode = model.get_quantizer_decode_fn()
+        self.code_permute = model.get_quantizer_decode_permute()
         self.token_bias = token_bias
+        self.codebook_size = model.get_codebook_size()
+        self.codebook_dim = model.get_codebook_dim()
 
         # NOTE(Jinchuan): make it as an external parameter rather than parsing from
         # the quantizer since not all codebooks will be used all the time.
@@ -164,7 +176,7 @@ class CodecEmbedding(AbsFrontend):
         self.pos = pos_enc_class(self.codebook_dim, positional_dropout_rate)
         self.ln = torch.nn.LayerNorm(self.codebook_dim)
 
-        self.decoder = model.codec.generator.decoder
+        # self.decoder = model.codec.generator.decoder
 
     def forward(
         self,
@@ -178,7 +190,6 @@ class CodecEmbedding(AbsFrontend):
             input_lengths % self.n_codebook,
         )
         assert torch.all(input < self.vocab_size)
-
         B, Tnq = input.size()
         x = input.view(B, Tnq // self.n_codebook, self.n_codebook)
         x = x - self.token_bias
@@ -188,17 +199,69 @@ class CodecEmbedding(AbsFrontend):
         # NOTE (Jinchuan): do this clip so that the dequantization process
         # will not encounter an error. In practice, only the padding values
         # will exceed this range and is ignored due to the length masking.
+
         x = torch.clip(x, min=0, max=self.codebook_size - 1)
 
-        z = self.quantizer.decode(x.permute(2, 0, 1)).permute(0, 2, 1)
+        # NOTE (Stan): Different code need different permutation
+        z = self.quantizer.decode(rearrange(x, self.code_permute))
+        if isinstance(z, tuple):
+            z = z[0]
+        z = rearrange(z, "b d t -> b t d")
 
         z = self.ln(z)
         z = self.pos(z)
 
         input_lengths = input_lengths // self.n_codebook
-
+        assert B == z.size(0), f"Batch size changed, please check permutation"
         return z, input_lengths
 
     def output_size(self) -> int:
         """Return output length of feature dimension D, i.e. the embedding dim."""
         return self.codebook_dim
+
+
+if __name__ == "__main__":
+    import torch
+    import yaml
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
+    from espnet2.mt.frontend.embedding import CodecEmbedding
+
+    # test Codec Embedding
+    config_paths = [
+        "conf/tuning/train_asr_ebranchformer_DAC.yaml",
+        "conf/tuning/train_asr_ebranchformer_EnCodec.yaml",
+        "conf/tuning/train_asr_ebranchformer_ESPnet.yaml",
+    ]
+    for config_path in config_paths:
+        print(
+            "----------------------------------------------------------------------------------------"
+        )
+        print(f"Config: {config_path}")
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        try:
+            frontend = CodecEmbedding(input_size=16, **config["frontend_conf"])
+        except Exception as e:
+            if isinstance(e, NotImplementedError):
+                print(f"Fail!! Config {config_path} fails to passed.")
+                continue
+            else:
+                raise e
+
+        print(f"Quantizer: {frontend.quantizer}")
+        print(f"Token Bias: {frontend.token_bias}")
+        print(f"Codebook Size: {frontend.codebook_size}")
+        print(f"Codebook Dimension: {frontend.codebook_dim}")
+        print(f"Number of Codebook: {frontend.n_codebook}")
+        print(f"Vocabulary Size: {frontend.vocab_size}")
+        print(f"")
+
+        print(f"Success !! Config {config_path} passed.")
+        del frontend
+        print(
+            "--------------------------------------------------------------------------------------------"
+        )
