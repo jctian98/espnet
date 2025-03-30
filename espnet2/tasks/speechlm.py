@@ -34,7 +34,7 @@ from espnet2.text.phoneme_tokenizer import g2p_choices
 from espnet2.torch_utils.initialize import initialize
 
 # Others
-from espnet2.speechlm.loss import SpeechLMCrossEntropyLoss
+from espnet2.speechlm.loss import SpeechLMCrossEntropyLossV2
 from espnet2.train.class_choices import ClassChoices
 from espnet2.train.collate_fn import CommonCollateFn
 from espnet2.train.abs_espnet_model import AbsESPnetModel
@@ -390,14 +390,21 @@ class SpeechLMTask(AbsTask):
         kwargs.update(corelm=corelm)
 
         # 3. Build traiing criterion
-        criterion = SpeechLMCrossEntropyLoss(
+        # criterion = SpeechLMCrossEntropyLoss(
+        #     pad=token_list.index("<pad>"),
+        #     vocab_size=len(token_list),
+        #     token_bias=token_bias.copy(),
+        #     modality_weights=args.modality_weights,
+        #     z_loss_weight=getattr(args, "z_loss_weight", 0.0),
+        #     lm_head=corelm.lm_head,
+        #     aux_lm_head=corelm.aux_lm_head,
+        # )
+        criterion = SpeechLMCrossEntropyLossV2(
             pad=token_list.index("<pad>"),
-            vocab_size=len(token_list),
             token_bias=token_bias.copy(),
             modality_weights=args.modality_weights,
-            z_loss_weight=getattr(args, "z_loss_weight", 0.0),
+            image_interval_split=args.image_token_per_patch,
             lm_head=corelm.lm_head,
-            aux_lm_head=corelm.aux_lm_head,
         )
         kwargs.update(criterion=criterion)
 

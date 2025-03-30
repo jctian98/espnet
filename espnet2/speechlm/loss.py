@@ -3,13 +3,6 @@ import logging
 from espnet2.speechlm.net_utils import length_mask
 import torch.distributed
 
-try:
-    from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
-    from liger_kernel.transformers import LigerCrossEntropyLoss
-except:
-    LigerFusedLinearCrossEntropyLoss = None
-    LigerCrossEntropyLoss = None
-
 class SpeechLMCrossEntropyLoss(torch.nn.Module):
     def __init__(
         self,
@@ -31,6 +24,9 @@ class SpeechLMCrossEntropyLoss(torch.nn.Module):
         self.pad = pad
         self.use_aux_ce_loss = aux_lm_head is not None # temp modification for convinience.
         self.z_loss_weight = z_loss_weight
+
+        if z_loss_weight > 0:
+            raise ValueError('z_loss is not implemented yet')
 
         # (1) parse the weights of tokens
         token_bias = token_bias.copy()
@@ -192,3 +188,159 @@ class SpeechLMCrossEntropyLoss(torch.nn.Module):
 
         return torch.cat(ce_loss)
 
+class SpeechLMCrossEntropyLossV2(torch.nn.Module):
+    def __init__(
+        self,
+        pad,
+        token_bias,
+        modality_weights,
+        image_interval_split,
+        lm_head: torch.nn.Linear = None,
+    ):
+        super().__init__()
+
+        self.pad = pad
+        self.lm_head = lm_head
+        self.modality_weights = modality_weights
+
+        # (1) loss weight
+        vocab_size = lm_head.weight.size(0)
+        self.weight = torch.ones(vocab_size).float()
+        for name, m_weight in modality_weights.items():
+            if name not in token_bias:
+                logging.warning(f"Modality {name} not in token_bias. Skip it")
+                continue
+            
+            start, end = token_bias[name]
+            self.weight[start: end] = m_weight
+        
+        # (2) aux loss interval
+        self.aux_loss_interval = []
+        # Codec codebook is small, put them in one interval for efficiency
+        if 'codec' in token_bias:
+            self.aux_loss_interval.append(token_bias['codec'])
+        # Image codebook is large, compute them separately
+        if 'image' in token_bias:
+            start, end = token_bias['image']
+            assert (end - start) % image_interval_split == 0
+            inc = (end - start) // image_interval_split
+            i = 0
+            while start + i * inc < end:
+                self.aux_loss_interval.append((
+                    start + i * inc,
+                    start + (i+1) * inc,
+                ))
+                i += 1
+        
+    def forward(self, hidden, targets, loss_mask):
+
+        tmp = [
+            hidden.cpu().numpy(),
+            targets.cpu().numpy(),
+            loss_mask.cpu().numpy()
+        ]
+        import pickle
+        pickle.dump(tmp, 'tmp.pkl')
+        assert 1 == 2
+
+        # NOTE(Jinchuan): keep the weight on the correct device in the first forward.
+        # We don't want to keep the weights registered as model parameters as they 
+        # should always be specified by external configurations.
+        device, dtype = hidden[0].device, hidden[0].dtype
+        self.weight = self.weight.to(device).to(dtype)
+
+        # (1) check shape
+        assert hidden.dim() == 4 # [B, T, nq, D]
+        assert targets.dim() == 3 # [B, T, nq]
+        assert loss_mask.dim() == 3 # [B, T, nq]
+        assert hidden.size()[:3] == targets.size()
+        assert hidden.size()[:3] == loss_mask.size()
+
+        # (2) apply loss mask to targets
+        targets = torch.where(loss_mask, targets, self.pad)
+        
+        elem_loss = torch.zeros_like(targets).to(dtype)
+        # default prediction is never equal to a target
+        pred = torch.ones_like(targets) * -1 if not self.training else None 
+
+        # (3) first stream
+        this_loss, this_pred, this_mask = self.forward_interval(
+            hidden[:, :, 0], targets[:, :, 0]
+        )
+        elem_loss[:, :, 0][this_mask] = this_loss
+        if this_pred is not None:
+            pred[:, :, 0][this_mask] = this_pred
+        
+        # (4) all remained stream.
+        # TODO: Check this is safe for single-stream LM.
+        for interval in self.aux_loss_interval:
+            this_loss, this_pred, this_mask = self.forward(
+                hidden[:, :, 1:],
+                targets[:, :, 1:],
+                interval=interval,
+            )
+            elem_loss[:, :, 1:][this_mask] = this_loss
+            if this_pred is not None:
+                pred[:, :, 1:][this_mask] = this_pred
+
+        # (5) summarize
+        frame_count = loss_mask[:, :, 0].float().sum()
+        loss = loss.sum() / frame_count
+        stats = {
+            "ce_loss": loss.clone().detach(),
+            "weight": frame_count.clone().detach(),
+        }
+
+        if pred is not None:
+            tok_count = loss_mask.float().sum()
+            acc = pred.eq(targets).float().sum() / tok_count
+            stats['acc_all'] = acc.clone().detach()
+
+            for n in range(targets.size(2)):
+                token_count = loss_mask[:, :, n].float().sum()
+                if tok_count > 0:
+                    acc = pred[:, :, n].eq(targets[:, :, n]).float().sum() / tok_count
+                else:
+                    acc = 0
+                stats[f'acc_layer{n}'] = acc.clone().detach()
+
+        
+        return loss, stats, frame_count
+    
+    def forward_interval(self, hidden, targets, interval=None):
+        shape = target.size()
+        hidden = hidden.flatten(end_dim=-2)
+        targets = targets.flatten()
+        
+        # mask and mask select
+        if interval is None:
+            mask = targets != self.pad
+            linear_weight = self.lm_head.weight
+            weight = self.weight
+            start = 0
+        else:
+            start, end = interval
+            mask = torch.logical_and(
+                targets >= start,
+                targets < end,
+            )
+            linear_weight = self.lm_head.weight[start: end]
+            weight = self.weight[start: end]
+        hidden, targets = hidden[mask], targets[mask]
+        
+        # loss computing
+        logits = torch.matmul(hidden, linear_weight)
+        loss = torch.nn.functional.cross_entropy(
+            logits,
+            targets - start,
+            weight=weight,
+            reduction='none'
+        )
+
+        if not self.training:
+            pred = logits.argmax(dim=-1)
+        else:
+            pred = None
+        
+        assert 1 == 2
+        return loss, pred, mask.view(shape)
