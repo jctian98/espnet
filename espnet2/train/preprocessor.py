@@ -2389,6 +2389,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         # codec related:
         codec_token_per_frame: int = 1,
         codec_token_in_use: Optional[int] = None,
+        image_token_per_patch: int = 1,
         # tokenizer related: Phone & BPE
         unk_symbol: Optional[str] = "<unk>",
         space_symbol: Optional[str] = "<space>",
@@ -2473,6 +2474,10 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             codec_token_in_use = codec_token_per_frame
             assert codec_token_in_use <= codec_token_per_frame
         self.codec_token_in_use = codec_token_in_use
+
+        # image tokenizer
+        self.image_token_per_patch = image_token_per_patch
+        assert image_token_per_patch <= codec_token_in_use
 
         # speaker prompt
         self.speaker_prompt_length = speaker_prompt_length
@@ -2605,11 +2610,11 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         new_data["prefix_len"] = np.array([prefix_len])
 
         # finally, sanity check
-        if np.isin(self.unk, new_data["dec_seq"]):
-            logging.warning(f"Unknown token is in the decoder seq. UID: {uid}")
-            self.diagnose(new_data)
+        # if np.isin(self.unk, new_data["dec_seq"]):
+        #     logging.warning(f"Unknown token is in the decoder seq. UID: {uid}")
+        #     self.diagnose(new_data)
 
-        # self.diagnose(new_data) # For debug. Enable this to check the sequence format
+        self.diagnose(new_data) # For debug. Enable this to check the sequence format
 
         return new_data
 
@@ -2662,9 +2667,23 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             )
             
             conti_feat = None
+        
+        elif modality in ["image"]:
+            value = value.reshape(-1, self.image_token_per_patch)
+            value = value + self.token_bias[modality][0]
+            
+            padding_length = self.codec_token_in_use - self.image_token_per_patch
+            value = np.pad(
+                value,
+                ((0, 0), (0, padding_length)),
+                mode="constant",
+                constant_values=self.pad,
+            )
+
+            conti_feat = None
 
         # Other discrete modalities
-        elif modality in ["ssl", "text_bpe", "g2p", "video_ssl", "svs_lb", "image"]:
+        elif modality in ["ssl", "text_bpe", "g2p", "video_ssl", "svs_lb"]:
 
             if modality in ["text_bpe", "g2p"]:
                 if isinstance(value, str):

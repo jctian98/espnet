@@ -224,6 +224,12 @@ class SpeechLMTask(AbsTask):
             help="Number of codec codes in exact use",
         )
         group.add_argument(
+            "--image_token_per_patch",
+            type=int,
+            default=1,
+            help="Number of image codes for each patch",
+        )
+        group.add_argument(
             "--loss_region",
             type=str,
             choices=["whole", "target"],
@@ -303,6 +309,7 @@ class SpeechLMTask(AbsTask):
             g2p_type=args.g2p,
             codec_token_per_frame=args.codec_token_per_frame,
             codec_token_in_use=args.codec_token_in_use,
+            image_token_per_patch=args.image_token_per_patch,
             speaker_prompt_length=args.speaker_prompt_length,
             pad_speaker_prompt=args.pad_speaker_prompt,
             n_ctx=args.corelm_conf.get("n_ctx", 8192),
