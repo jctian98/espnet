@@ -28,6 +28,7 @@ from espnet2.speechlm.espnet_model_rl import ESPnetSpeechLMRLModel
 from espnet2.speechlm.tokenizer.abs_tokenizer import AbsTokenizer
 from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
 from espnet2.speechlm.tokenizer.text_bpe_tokenizer import TextBPETokenizer
+from espnet2.speechlm.tokenizer.image_tokenizer import ImageTokenizer
 from espnet2.tasks.abs_task import AbsTask
 from espnet2.text.phoneme_tokenizer import g2p_choices
 from espnet2.torch_utils.initialize import initialize
@@ -72,6 +73,7 @@ tokenizer_choices = ClassChoices(
     classes=dict(
         codec=CodecTokenizer,
         text_bpe=TextBPETokenizer,
+        image=ImageTokenizer,
     ),
     type_check=AbsTokenizer,
     default=None,

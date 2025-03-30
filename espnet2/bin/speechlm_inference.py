@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import torch
 import torchaudio
 import yaml
+from PIL import Image
 from kaldiio import WriteHelper
 from packaging.version import parse as V
 from typeguard import typechecked
@@ -58,6 +59,7 @@ class SpeechLM:
         minlenratio: float = 10.0,
         fixed_length: bool = False,
         codec_conf: dict = None,
+        image_conf: dict = None,
     ):
         """Initialize SpeechLM module."""
 
@@ -155,9 +157,16 @@ class SpeechLM:
         #       not included in preprocessor.
         if any([m in self.modalities for m in ["codec", "codec_ssl", "spk"]]):
             self.codec_tokenizer = tokenizer_choices.get_class("codec")(**codec_conf)
-            self.codec_tokenizer.to(self.device)
+            self.codec_tokenizer = self.codec_tokenizer.to(self.device)
         else:
             self.codec_tokenizer = None
+        
+        if any ([m in self.modalities for m in ["image"]]):
+            self.image_tokenizer = tokenizer_choices.get_class("image")(
+                **image_conf, device=self.device
+            )
+        else:
+            self.image_tokenizer = None
 
         # (4.2) online tokenizers should be from preprocessor.
         if "text_bpe" in self.modalities:
@@ -252,6 +261,12 @@ class SpeechLM:
                 # sentencepiece will include "\n" but huggingface will not.
                 # make it uniform
                 detokenized = detokenized.strip() + "\n"
+            
+            elif modality in ["image"]:
+                segment = segment[segment[:, 0] != self.pad]
+                segment = segment[:, 0]
+                segment = segment - self.token_bias['image'][0]
+                detokenized = self.image_tokenizer.detokenize(segment).squeeze(0)
 
             else:
                 segment = segment[:, 0] - self.token_bias[modality][0]
@@ -326,6 +341,7 @@ def inference(
     fixed_length: bool = False,
     # offline tokenizers
     codec_conf: dict = None,
+    image_conf: dict = None,
 ):
     """Run SpeechLM inference."""
     if batch_size > 1:
@@ -366,6 +382,7 @@ def inference(
         fixed_length=fixed_length,
         task=task,
         codec_conf=codec_conf,
+        image_conf=image_conf,
     )
     # NOTE(Jinchuan): in multi-processing, avoid memory spike
     time.sleep(rank * 5)
@@ -464,6 +481,14 @@ def inference(
                         detokenized = detokenized.strip()
                         writers[name].write(f"{example_name} {detokenized}\n")
                         logging.info(f"Save text: {detokenized}")
+                    
+                    elif modality in ['image']:
+                        image_array = detokenized.cpu().numpy()
+                        image = Image.fromarray(image_array)
+                        example_name_ = example_name.replace("/", "_")[-64:]
+                        image_path = output_dir / name / f"{example_name_}.png"
+                        image.save(image_path)
+                        logging.info(f"Save image: {image_path}")
 
                     else:
                         raise ValueError(
@@ -630,7 +655,7 @@ def get_parser():
 
     # Offline tokenizer configurations. The offline tokenizers are not used during
     # training and thus should be specified externally.
-    for tokenizer in ["codec"]:
+    for tokenizer in ["codec", "image"]:
         tokenizer_class = tokenizer_choices.get_class(tokenizer)
         group.add_argument(
             f"--{tokenizer}_conf",

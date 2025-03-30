@@ -129,6 +129,9 @@ class ImageTokenizer(AbsTokenizer):
         Input (torch.Tensor): [B, W * H * C], torch.long
         Output (torch.Tensor): [B, W, H, C], torch.uint8
         """
+        if codes.dim() == 1:
+            codes = codes.unsqueeze(0)
+
         if self.model_choice == "cosmos":
             assert codes.dim() == 2
             size = int((codes.size(1) / self.n_codebook) ** 0.5)
