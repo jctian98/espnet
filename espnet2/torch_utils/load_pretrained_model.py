@@ -99,6 +99,9 @@ def load_pretrained_model(
     src_state = torch.load(path, map_location=map_location)
     if 'model' in src_state:
         src_state = src_state['model']
+    elif 'module' in src_state: # NOTE(Jinchuan): deepspeed checkpoint
+        src_state = src_state['module']
+
     if excludes is not None:
         for e in excludes.split(","):
             src_state = {k: v for k, v in src_state.items() if not k.startswith(e)}

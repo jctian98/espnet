@@ -201,11 +201,11 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
 
         self.pad = pad
         self.lm_head = lm_head
-        self.modality_weights = modality_weights
 
         # (1) loss weight
         vocab_size = lm_head.weight.size(0)
         self.weight = torch.ones(vocab_size).float()
+        self.weight.requires_grad_(False)
         for name, m_weight in modality_weights.items():
             if name not in token_bias:
                 logging.warning(f"Modality {name} not in token_bias. Skip it")
@@ -233,16 +233,6 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
                 i += 1
         
     def forward(self, hidden, targets, loss_mask):
-
-        tmp = [
-            hidden.cpu().numpy(),
-            targets.cpu().numpy(),
-            loss_mask.cpu().numpy()
-        ]
-        import pickle
-        pickle.dump(tmp, 'tmp.pkl')
-        assert 1 == 2
-
         # NOTE(Jinchuan): keep the weight on the correct device in the first forward.
         # We don't want to keep the weights registered as model parameters as they 
         # should always be specified by external configurations.
@@ -257,58 +247,61 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
         assert hidden.size()[:3] == loss_mask.size()
 
         # (2) apply loss mask to targets
-        targets = torch.where(loss_mask, targets, self.pad)
+        targets = torch.where(loss_mask.bool(), targets, self.pad)
         
         elem_loss = torch.zeros_like(targets).to(dtype)
         # default prediction is never equal to a target
-        pred = torch.ones_like(targets) * -1 if not self.training else None 
+        acc = torch.zeros_like(targets).float() if not self.training else None 
 
         # (3) first stream
-        this_loss, this_pred, this_mask = self.forward_interval(
+        this_loss, this_acc, this_mask = self.forward_interval(
             hidden[:, :, 0], targets[:, :, 0]
         )
         elem_loss[:, :, 0][this_mask] = this_loss
-        if this_pred is not None:
-            pred[:, :, 0][this_mask] = this_pred
+        if this_acc is not None:
+            acc[:, :, 0][this_mask] = this_acc
         
         # (4) all remained stream.
         # TODO: Check this is safe for single-stream LM.
         for interval in self.aux_loss_interval:
-            this_loss, this_pred, this_mask = self.forward(
+            this_loss, this_acc, this_mask = self.forward_interval(
                 hidden[:, :, 1:],
                 targets[:, :, 1:],
                 interval=interval,
             )
-            elem_loss[:, :, 1:][this_mask] = this_loss
-            if this_pred is not None:
-                pred[:, :, 1:][this_mask] = this_pred
 
+            if this_loss is None: # no target in this interval
+                continue
+
+            elem_loss[:, :, 1:][this_mask] = this_loss
+            if this_acc is not None:
+                acc[:, :, 1:][this_mask] = this_acc
+        
         # (5) summarize
-        frame_count = loss_mask[:, :, 0].float().sum()
-        loss = loss.sum() / frame_count
+        frame_count = loss_mask[:, :, 0].sum()
+        loss = elem_loss.sum() / frame_count
         stats = {
             "ce_loss": loss.clone().detach(),
             "weight": frame_count.clone().detach(),
         }
 
-        if pred is not None:
+        if acc is not None:
             tok_count = loss_mask.float().sum()
-            acc = pred.eq(targets).float().sum() / tok_count
-            stats['acc_all'] = acc.clone().detach()
+            acc_all = acc.sum() / tok_count
+            stats['acc_all'] = acc_all.clone().detach()
 
             for n in range(targets.size(2)):
                 token_count = loss_mask[:, :, n].float().sum()
                 if tok_count > 0:
-                    acc = pred[:, :, n].eq(targets[:, :, n]).float().sum() / tok_count
+                    acc_layer = acc[:, :, n].sum() / tok_count
                 else:
-                    acc = 0
-                stats[f'acc_layer{n}'] = acc.clone().detach()
+                    acc_layer = 0
+                stats[f'acc_layer{n}'] = acc_layer.clone().detach()
 
-        
         return loss, stats, frame_count
     
     def forward_interval(self, hidden, targets, interval=None):
-        shape = target.size()
+        shape = targets.size()
         hidden = hidden.flatten(end_dim=-2)
         targets = targets.flatten()
         
@@ -326,10 +319,14 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
             )
             linear_weight = self.lm_head.weight[start: end]
             weight = self.weight[start: end]
+
+        if mask.float().sum() == 0:
+            return None, None, None
+
         hidden, targets = hidden[mask], targets[mask]
         
         # loss computing
-        logits = torch.matmul(hidden, linear_weight)
+        logits = torch.matmul(hidden, linear_weight.T)
         loss = torch.nn.functional.cross_entropy(
             logits,
             targets - start,
@@ -338,9 +335,8 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
         )
 
         if not self.training:
-            pred = logits.argmax(dim=-1)
+            acc = logits.argmax(dim=-1).eq(targets - start).float()
         else:
-            pred = None
+            acc = None
         
-        assert 1 == 2
-        return loss, pred, mask.view(shape)
+        return loss, acc, mask.view(shape)

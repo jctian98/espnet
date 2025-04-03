@@ -41,13 +41,6 @@ class ARParallelLM(AbsCoreLM):
         if share_emb:
             self.lm_head.weight = self.emb.weight
 
-        if nq > 1 and aux_vocab_size > 0:
-            self.aux_lm_head = torch.nn.Linear(
-                transformer.d_model, aux_vocab_size, bias=False
-            )
-        else:
-            self.aux_lm_head = None
-
         self.head_emb = torch.nn.Embedding(12, transformer.d_model, padding_idx=0)
 
         if hasattr(self.decoders, "init_embeddings"):
