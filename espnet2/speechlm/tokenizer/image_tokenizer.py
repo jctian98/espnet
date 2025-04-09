@@ -22,7 +22,7 @@ class ImageTokenizer(AbsTokenizer):
         self,
         model_choice: str,
         model_tag: int,
-        device: str,
+        device: str = 'cpu',
     ):
         """Image Tokenizer initialization
 
@@ -130,7 +130,7 @@ class ImageTokenizer(AbsTokenizer):
         Output (torch.Tensor): [B, W, H, C], torch.uint8
         """
         if codes.dim() == 1:
-            codes = codes.unsqueeze(0)
+                codes = codes.unsqueeze(0)
 
         if self.model_choice == "cosmos":
             assert codes.dim() == 2

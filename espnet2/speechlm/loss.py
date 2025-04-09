@@ -278,7 +278,7 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
                 acc[:, :, 1:][this_mask] = this_acc
         
         # (5) summarize
-        frame_count = loss_mask[:, :, 0].sum()
+        frame_count = loss_mask[:, :, 0].sum().float()
         loss = elem_loss.sum() / frame_count
         stats = {
             "ce_loss": loss.clone().detach(),
@@ -291,11 +291,11 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
             stats['acc_all'] = acc_all.clone().detach()
 
             for n in range(targets.size(2)):
-                token_count = loss_mask[:, :, n].float().sum()
+                tok_count = loss_mask[:, :, n].float().sum()
                 if tok_count > 0:
                     acc_layer = acc[:, :, n].sum() / tok_count
                 else:
-                    acc_layer = 0
+                    acc_layer = torch.Tensor([0]).to(device).float()
                 stats[f'acc_layer{n}'] = acc_layer.clone().detach()
 
         return loss, stats, frame_count

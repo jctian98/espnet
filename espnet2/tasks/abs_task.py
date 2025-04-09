@@ -2302,6 +2302,8 @@ class AbsTask(ABC):
                 state_dict = torch.load(model_file, map_location='cpu')
                 if 'model' in state_dict:
                     state_dict = state_dict['model']
+                elif 'module' in state_dict:
+                    state_dict = state_dict['module'] # deepspeed
                 model.load_state_dict(
                     state_dict,
                     strict=True,

@@ -264,7 +264,7 @@ class SpeechLM:
             
             elif modality in ["image"]:
                 segment = segment[segment[:, 0] != self.pad]
-                segment = segment[:, 0]
+                segment = segment[:, :self.train_args.image_token_per_patch].reshape(1, -1)
                 segment = segment - self.token_bias['image'][0]
                 detokenized = self.image_tokenizer.detokenize(segment).squeeze(0)
 
@@ -458,7 +458,7 @@ def inference(
                     example_name = key.removeprefix(f"{task_name}_")
 
                 # 5.2 save token
-                token_writers[name][example_name] = token.int().cpu().numpy()
+                token_writers[name][example_name] = token.int().flatten().cpu().numpy()
 
                 # 5.3 save tokenized results
                 if detokenized is not None:

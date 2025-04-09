@@ -150,14 +150,7 @@ class ARDelayLM(ARParallelLM):
             h = self.decoders(prev_emb)
 
             h = h.unsqueeze(2) + self.head_emb.weight.tile(1, 1, 1, 1)[:, :, : self.nq]
-            logits = self.lm_head(h[:, :, :1])  # [B, 1, nq, V]
-            if self.aux_lm_head is not None:
-                aux_logits = self.aux_lm_head(h[:, :, 1:])
-                # NOTE(Jinchuan) use small number but not -inf, otherwise it will cause confict with
-                # modality mask.
-                pad_aux_logits = torch.ones_like(logits).repeat(1, 1, aux_logits.size(2), 1) * -1e10
-                pad_aux_logits[..., opts.aux_start: opts.aux_start + aux_logits.size(3)] = aux_logits
-                logits = torch.cat([logits, pad_aux_logits], dim=2)
+            logits = self.lm_head(h)
 
             gen_tok, gen_score = logits_to_tokens(
                 logits,
