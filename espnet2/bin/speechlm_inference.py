@@ -21,7 +21,11 @@ from packaging.version import parse as V
 from typeguard import typechecked
 
 from espnet2.speechlm.core_lm.abs_core_lm import SpeechLMInferenceOptions
-from espnet2.speechlm.definitions import SPEECHLM_TASKS, SpeechLMTaskTemplate
+from espnet2.speechlm.definitions import (
+    SPEECHLM_TASKS,
+    MODALITIES,
+    SpeechLMTaskTemplate,
+)
 from espnet2.tasks.speechlm import SpeechLMTask, tokenizer_choices
 
 # utilities
@@ -93,6 +97,9 @@ class SpeechLM:
 
         for modality in set(self.modalities):
             if modality == "spk":  # never predict "spk" modality
+                continue
+
+            if not MODALITIES[modality].discrete:
                 continue
 
             mask = torch.ones(self.inference_nq, len(self.token_list)).to(device).bool()
@@ -276,6 +283,10 @@ class SpeechLM:
                 segment = segment[:, :self.train_args.image_token_per_patch].reshape(1, -1)
                 segment = segment - self.token_bias['image'][0]
                 detokenized = self.image_tokenizer.detokenize(segment).squeeze(0)
+            
+            elif not MODALITIES[modality].discrete:
+                segment = segment[:, 0] # meaningless placeholders
+                detokenized = segment
 
             else:
                 segment = segment[:, 0] - self.token_bias[modality][0]
@@ -498,6 +509,9 @@ def inference(
                         image_path = output_dir / name / f"{example_name_}.png"
                         image.save(image_path)
                         logging.info(f"Save image: {image_path}")
+                    
+                    elif modality in ["vision_encoder"]:
+                        pass
 
                     else:
                         raise ValueError(

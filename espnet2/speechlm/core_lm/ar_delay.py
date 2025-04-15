@@ -107,6 +107,7 @@ class ARDelayLM(ARParallelLM):
         # (2) splice-interleave-split and prefill
         full_seq_delay, _ = self.delay_interleave(torch.cat([prefix, suffix], dim=1))
         full_seq_delay = full_seq_delay.expand(opts.nbest, -1, -1)
+        conti_feats = conti_feats * opts.nbest
 
         prelen = prefix.size(1)
         prefix = full_seq_delay[:, :prelen - 1]
@@ -114,6 +115,14 @@ class ARDelayLM(ARParallelLM):
         suffix = full_seq_delay[:, prelen - 1:]
 
         prefix_emb = self.emb(prefix).sum(dim=2)
+        if len(self.continuous_encoders) > 0:
+            for modality, module in self.continuous_encoders.items():
+                prefix_emb = module(
+                    prefix_emb,
+                    conti_feats,
+                    modality=modality,
+                )
+
         _ = self.decoders(prefix_emb)
 
         # (3) auto-regressive loop
