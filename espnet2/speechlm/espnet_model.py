@@ -43,6 +43,7 @@ class ESPnetSpeechLMModel(AbsESPnetModel):
         logits, targets, loss_mask = self.corelm(
             dec_seq,
             loss_mask,
+            conti_feats,
         )
 
         loss, stats, weight = self.criterion(

@@ -120,6 +120,15 @@ class SpeechLM:
                     mask[n + 1, codec_start + n * inc : codec_start + (n + 1) * inc] = (
                         False
                     )
+            
+            elif modality == "image":
+                start, end = self.token_bias[modality]
+                assert (end - start) % train_args.image_token_per_patch == 0
+                inc = (end - start) // train_args.image_token_per_patch
+                for n in range(train_args.image_token_per_patch):
+                    mask[n, start + n * inc : start + (n + 1) * inc] = False
+                    print(f"layer{n}: ", start + n * inc,  start + (n + 1) * inc)
+                mask[train_args.image_token_per_patch:, self.pad] = False
 
             else: # single-stream, discrete tokens
                 start, end = self.token_bias[modality]

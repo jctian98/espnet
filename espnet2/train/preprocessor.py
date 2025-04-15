@@ -13,6 +13,7 @@ import numpy as np
 import scipy.signal
 import soundfile
 from typeguard import typechecked
+from PIL import Image
 
 import espnet2.speechlm.definitions as speechlm_definitions
 from espnet2.layers.augmentation import DataAugmentation
@@ -2389,7 +2390,6 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         # codec related:
         codec_token_per_frame: int = 1,
         codec_token_in_use: Optional[int] = None,
-        image_token_per_patch: int = 1,
         # tokenizer related: Phone & BPE
         unk_symbol: Optional[str] = "<unk>",
         space_symbol: Optional[str] = "<space>",
@@ -2402,6 +2402,10 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         # speaker prompt
         speaker_prompt_length: int = 500,
         pad_speaker_prompt: bool = True,
+        # vision codec
+        image_token_per_patch: int = 1,
+        # vision encoder
+        vision_encoder_processor_conf: Optional[dict] = {},
         # others
         n_ctx: int = 4096,
         inter_segment_pad: int = 0,
@@ -2483,6 +2487,32 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         self.speaker_prompt_length = speaker_prompt_length
         self.pad_speaker_prompt = pad_speaker_prompt
 
+        # vision encoder
+        vision_encoder_processor = vision_encoder_processor_conf.get("hf_tag", None)
+        if vision_encoder_processor is not None:
+            if vision_encoder_processor.startswith("google/siglip"):
+                try:
+                    from transformers import SiglipImageProcessor, AutoConfig
+                except:
+                    raise ImportError(
+                        "Please install transformers to use vision encoder"
+                    )
+                self.vision_encoder_processor = SiglipImageProcessor.from_pretrained(
+                    vision_encoder_processor
+                )
+                patch_size = AutoConfig.from_pretrained(
+                    vision_encoder_processor
+                ).vision_config.patch_size
+                image_size = self.vision_encoder_processor.size
+                self.vision_encoder_feat_len = image_size["height"] * image_size["width"] // patch_size ** 2
+
+            else:
+                raise ValueError(
+                    f"Unsupported vision encoder processor: {vision_encoder_processor}"
+                )
+        else:
+            self.vision_encoder_processor = None
+
         # extra entries
         self.extra_names_and_modalities = [
             tup.split(",") for tup in extra_names_and_modalities
@@ -2524,7 +2554,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 data_tuples.append((name, modality, role, content, target))
 
         # (2) modality-specific processing. 
-        seqs, loss_masks = [], []
+        seqs, loss_masks, conti_feats = [], [], []
         cache = dict(task_name=task_name)
         for idx, data_tuple in enumerate(data_tuples):
             name, modality, role, content, target = data_tuple
@@ -2535,12 +2565,10 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             # end-of-utterance: all other target segments
             if not target:
                 end_tok = None
-            elif idx == len(data_tuples) - 1:
-                end_tok = "<sos/eos>"
             else:
-                end_tok = "<eou>" # end-of-utterance
+                end_tok = "<sos/eos>"
             
-            value, _ = self.modality_specific_processing(
+            value, conti_feat, conti_len = self.modality_specific_processing(
                 content,
                 modality, 
                 cache,
@@ -2569,7 +2597,8 @@ class SpeechLMPreprocessor(AbsPreprocessor):
 
             seqs.append(value)
             target = True if self.loss_region == "whole" else target
-            loss_masks.append(value * 0 + int(target))
+            loss_masks.append(value * 0 + int(target and conti_feat is None))
+            conti_feats.append([conti_feat, modality, idx, conti_len])
         
         # (3) splice
         sos_eos = self.special_token("<sos/eos>")
@@ -2603,6 +2632,13 @@ class SpeechLMPreprocessor(AbsPreprocessor):
 
         # (4) continuous features
         new_conti_feats = []
+        modality_identifier_indices = np.nonzero(
+            (dec_seq[:, 0] >= 32) & (dec_seq[:, 0] < 64)
+        )[0]
+        for conti_feat, modality, idx, conti_len in conti_feats:
+            if conti_feat is not None:
+                start = modality_identifier_indices[idx] + 1
+                new_conti_feats.append((conti_feat, modality, start, conti_len))
         new_data["conti_feats"] = new_conti_feats
 
         # (5) prefix_len, as inference legacy. temp code
@@ -2666,7 +2702,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 value + token_bias
             )
             
-            conti_feat = None
+            conti_feat, conti_len = None, 0
         
         elif modality in ["image"]:
             value = value.reshape(-1, self.image_token_per_patch)
@@ -2680,7 +2716,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 constant_values=self.pad,
             )
 
-            conti_feat = None
+            conti_feat, conti_len = None, 0
 
         # Other discrete modalities
         elif modality in ["ssl", "text_bpe", "g2p", "video_ssl", "svs_lb"]:
@@ -2716,7 +2752,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             
             else:
                 raise NotImplementedError
-
+            
             value = np.pad(
                 np.expand_dims(value, 1),
                 ((0, 0), (0, self.codec_token_in_use - 1)),
@@ -2724,15 +2760,24 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 constant_values=self.pad,
             )
 
-            conti_feat = None
-
-        # continuous modalities
-        elif modality in ["text_emb"]:
-            raise NotImplementedError
+            conti_feat, conti_len = None, 0
+            
+        elif modality in ["vision_encoder"]:
+            assert isinstance(value, str)
+            img = Image.open(value)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            conti_feat = self.vision_encoder_processor(
+                img, return_tensors="np",
+            )["pixel_values"][0]
+            value = self.special_token("<pad>")
+            conti_len = self.vision_encoder_feat_len
+            value = np.repeat(value, conti_len)
 
         else:
             raise NotImplementedError(f"Modality: {modality}")
     
+        # SpecAugment for ASR
         if modality in ["codec", "ssl", "codec_ssl"] and "asr" in cache["task_name"] and self.asr_apply_time_mask and self.train:
             value = np.expand_dims(value, axis=0)
             value, _ = self.asr_time_mask(value)
@@ -2745,7 +2790,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             end_tok = self.special_token(end_tok)
             value = np.concatenate([value, end_tok])
 
-        return value.astype(np.int64), conti_feat
+        return value.astype(np.int64), conti_feat, conti_len
 
     def diagnose(self, data):
         """Only for debug"""

@@ -17,6 +17,7 @@ class ARParallelLM(AbsCoreLM):
     def __init__(
         self,
         transformer,
+        continuous_encoders: dict,
         vocab_size: int,
         aux_vocab_size: int,
         nq: int,
@@ -46,6 +47,10 @@ class ARParallelLM(AbsCoreLM):
         if hasattr(self.decoders, "init_embeddings"):
             self.decoders.init_embeddings(self.emb, self.lm_head)
         
+        self.continuous_encoders = torch.nn.ModuleDict(continuous_encoders)
+        for _, module in continuous_encoders.items():
+            module.register_projection(odim=transformer.d_model)
+        
         self.nq = nq
         self.n_ctx = transformer.n_ctx
         
@@ -53,6 +58,7 @@ class ARParallelLM(AbsCoreLM):
         self,
         dec_seq: torch.Tensor,
         loss_mask: torch.Tensor = None,
+        conti_feats: list = None,
     ) -> Tuple[torch.Tensor, Dict, torch.Tensor]:
         """Auto-Regresive LM forward for training
 
@@ -68,6 +74,13 @@ class ARParallelLM(AbsCoreLM):
 
         # input embedding
         x = self.emb(x).sum(dim=2)
+        if len(self.continuous_encoders) > 0:
+            for modality, module in self.continuous_encoders.items():
+                x = module(
+                    x,
+                    conti_feats,
+                    modality=modality,
+                )
 
         # transformer output
         x = self.decoders(x)

@@ -5,8 +5,6 @@
 
 import torch
 import logging
-from espnet2.speechlm.net_utils import length_mask
-import torch.distributed
 
 class SpeechLMCrossEntropyLoss(torch.nn.Module):
     def __init__(

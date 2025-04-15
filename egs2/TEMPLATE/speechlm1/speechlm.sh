@@ -156,7 +156,7 @@ if [ $# -ne 0 ]; then
     log "Error: No positional arguments are required."
     exit 2
 fi
-. ./path.sh
+# . ./path.sh
 . ./cmd.sh
 
 # Check for stage 1-5: data prep
@@ -342,17 +342,7 @@ if ! "${skip_data_prep}"; then
                     log "File ${data_audio}/${dset}/${_name} is missing. Exit" && exit 1;
                 fi
 
-                if [ ${_modality} == "text_emb" ]; then
-                    log "Offline Text LM inference for text embeddings"
-                    scripts/feats/dump_textlm.sh \
-                      --src_dir ${data_audio}/${dset} \
-                      --tgt_dir ${data_feats}/${dset} \
-                      --file_name ${_name} \
-                      --hf_model_tag ${textlm_hf_model_tag} \
-                      --max_words ${textlm_max_words} \
-                      --nj ${nj}
-
-                elif [ ${_modality} == "codec_ssl" ]; then
+                if [ ${_modality} == "codec_ssl" ]; then
                     # do both codec and SSL tokenization and then splice them in time-axis
                     log "codec_ssl tokenization: ${data_audio}/${dset}/${_name} -> ${data_feats}/${dset}/${_name}"
 
@@ -492,6 +482,10 @@ if ! "${skip_data_prep}"; then
 
                 elif [ ${_modality} == "spk" ]; then
                     echo "copy utt2spk file"
+                    cp "${data_audio}/${dset}/${_name}" "${data_feats}/${dset}/${_name}"
+                
+                elif [ ${_modality} == "clip_feat" ]; then
+                    echo "copy continuous clip feature"
                     cp "${data_audio}/${dset}/${_name}" "${data_feats}/${dset}/${_name}"
 
                 else

@@ -28,9 +28,9 @@ MODALITIES["svs_lb"] = Modality()
 MODALITIES["image"] = Modality()
 
 # continuous
-MODALITIES["wav"] = Modality(discrete=False)
-MODALITIES["text_emb"] = Modality(discrete=False)
-MODALITIES["ssl_feat"] = Modality(discrete=False)
+MODALITIES["speech_ssl_encoder"] = Modality(discrete=False)
+MODALITIES["speech_codec_encoder"] = Modality(discrete=False)
+MODALITIES["vision_encoder"] = Modality(discrete=False)
 
 # dialogue
 MODALITIES["dialogue"] = Modality()
@@ -238,6 +238,11 @@ SPEECHLM_TASKS["image_to_text"] = SpeechLMTaskTemplate(
 SPEECHLM_TASKS["text_to_image"] = SpeechLMTaskTemplate(
     conditions=[("text", "text_bpe", "text")],
     targets=[("image.scp", "image", "kaldi_ark")],
+)
+
+SPEECHLM_TASKS["continuous_image_to_text"] = SpeechLMTaskTemplate(
+    conditions=[("image.scp", "vision_encoder", "text")],
+    targets=[("text", "text_bpe", "text")],
 )
 
 # END OF TASK DEFINITION #

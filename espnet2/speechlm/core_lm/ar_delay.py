@@ -24,6 +24,7 @@ class ARDelayLM(ARParallelLM):
         self,
         dec_seq: torch.Tensor,
         loss_mask: torch.Tensor = None,
+        conti_feats: list = None,
     ) -> Tuple[torch.Tensor, Dict, torch.Tensor]:
         """ARDelayLM forward for training.
 
@@ -42,6 +43,7 @@ class ARDelayLM(ARParallelLM):
         return super().forward(
             dec_seq=dec_seq_delay,
             loss_mask=loss_mask,
+            conti_feats=conti_feats,
         )
 
     def delay_interleave(
