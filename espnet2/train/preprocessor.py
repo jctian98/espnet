@@ -2559,10 +2559,8 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         for idx, data_tuple in enumerate(data_tuples):
             name, modality, role, content, target = data_tuple
             
-            # NOTE(Jinchuan): add an indicator to the end for each target segment.
-            # This is for multi-segment inference.
-            # end-of-sentence: the last target segment
-            # end-of-utterance: all other target segments
+            # NOTE(Jinchuan): We only need the end token for the generated content
+            # but not for user-input content or system prompt.
             if not target:
                 end_tok = None
             else:

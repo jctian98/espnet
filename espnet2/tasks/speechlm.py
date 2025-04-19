@@ -329,7 +329,7 @@ class SpeechLMTask(AbsTask):
             image_token_per_patch=args.image_token_per_patch,
             speaker_prompt_length=args.speaker_prompt_length,
             pad_speaker_prompt=args.pad_speaker_prompt,
-            n_ctx=args.corelm_conf.get("n_ctx", 8192),
+            n_ctx=args.transformer_conf.get("n_ctx", 8192),
             inter_segment_pad=args.codec_token_in_use - 1 if args.corelm == "ar_delay" else 0,
             asr_apply_time_mask=args.asr_apply_time_mask,
             asr_time_mask_config=args.asr_time_mask_config,

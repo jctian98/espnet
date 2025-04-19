@@ -117,8 +117,11 @@ class DialogueDataset:
         return item in self.dialogues
 
     def add_dialogue(self, name: str, dialogue: Dialogue):
-        assert name not in self.dialogues
+        assert name not in self.dialogues, f"Duplicate dialogue name: {name}"
         self.dialogues[name] = dialogue
+    
+    def __contains__(self, name):
+        return name in self.dialogues
 
     def dump_dataset(
         self, 

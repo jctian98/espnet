@@ -57,9 +57,9 @@ test_jsons=""
 
 # Audio Feature extraction related
 feats_type=raw             # Input feature type.
-audio_format=flac          # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw).
+audio_format=flac.ark      # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw).
 min_wav_duration=0.1       # Minimum duration in second.
-max_wav_duration=30        # Maximum duration in second.
+max_wav_duration=120       # Maximum duration in second.
 fs=16000                   # Sampling rate.
 
 # Training related
@@ -156,7 +156,7 @@ if [ $# -ne 0 ]; then
     log "Error: No positional arguments are required."
     exit 2
 fi
-# . ./path.sh
+. ./path.sh
 . ./cmd.sh
 
 # Check for stage 1-5: data prep
