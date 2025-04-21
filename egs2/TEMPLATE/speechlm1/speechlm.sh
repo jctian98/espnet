@@ -725,7 +725,7 @@ if ! "${skip_eval}"; then
 
         _opts=
         if [ -n "${inference_config}" ]; then
-            _opts+="--config ${inference_config} "
+            _opts+="--inference_config_file ${inference_config} "
         fi
 
         for test_json in ${test_jsons}; do
@@ -746,7 +746,7 @@ if ! "${skip_eval}"; then
             log "Decoding started... log: '${_logdir}/speechlm_inference.*.log'"
             # shellcheck disable=SC2046,SC2086
             ${_cmd} --gpu "${_ngpu}" JOB=1:"${inference_nj}" "${_logdir}"/speechlm_inference.JOB.log \
-                ${python} -m espnet2.bin.speechlm_inference \
+                ${python} -m espnet2.bin.speechlm_inference_chat \
                     --ngpu "${_ngpu}" \
                     --nbest ${nbest} \
                     --model_file "${speechlm_exp}"/"${inference_model}" \
@@ -764,8 +764,8 @@ if ! "${skip_eval}"; then
                 fi
 
                 for n in `seq ${inference_nj}`; do
-                    cat ${_logdir}/output.${n}/${entry}/token_${entry}.scp
-                done | sort > ${_dir}/token_${entry}.scp
+                    cat ${_logdir}/output.${n}/${entry}/${entry}_token.scp
+                done | sort > ${_dir}/${entry}_token.scp
             done
         done
     fi

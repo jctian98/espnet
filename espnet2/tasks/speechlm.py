@@ -326,7 +326,7 @@ class SpeechLMTask(AbsTask):
             g2p_type=args.g2p,
             codec_token_per_frame=args.codec_token_per_frame,
             codec_token_in_use=args.codec_token_in_use,
-            image_token_per_patch=args.image_token_per_patch,
+            image_token_per_patch=getattr(args, "image_token_per_patch", 1),
             speaker_prompt_length=args.speaker_prompt_length,
             pad_speaker_prompt=args.pad_speaker_prompt,
             n_ctx=args.transformer_conf.get("n_ctx", 8192),
@@ -398,7 +398,7 @@ class SpeechLMTask(AbsTask):
         # 2. Build continuous encoder
         continuous_encoders = dict()
         for modality in ["vision_encoder"]:
-            if getattr(args, modality) is not None:
+            if getattr(args, modality, None) is not None:
                 continuous_encoder_class = vision_encoder_choices.get_class(
                     getattr(args, modality)
                 )
@@ -424,7 +424,7 @@ class SpeechLMTask(AbsTask):
             pad=token_list.index("<pad>"),
             token_bias=token_bias.copy(),
             modality_weights=args.modality_weights,
-            image_interval_split=args.image_token_per_patch,
+            image_interval_split=getattr(args, "image_token_per_patch", 1),
             lm_head=corelm.lm_head,
         )
         kwargs.update(criterion=criterion)

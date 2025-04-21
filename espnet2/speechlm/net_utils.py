@@ -75,7 +75,6 @@ def install_kv_cache_hook(model, cache, attn_module):
 def logits_to_tokens(
     logits: torch.Tensor,
     opts: SpeechLMInferenceOptions,
-    mask: torch.Tensor,
     search_algo: str = None,
     allow_eos: bool = True,
     nq_level: int = None,
@@ -96,6 +95,8 @@ def logits_to_tokens(
     neg_inf = -1e20
 
     # (1) Apply mask
+    mask = opts.mask.clone()
+    mask = mask.view(1, 1, opts.nq, -1)
     if nq_level is not None:
         mask = mask[:, :, nq_level : nq_level + 1]
 
@@ -107,7 +108,7 @@ def logits_to_tokens(
 
     # (2) token selection
     if search_algo in ["topk_sampling"]:
-        topk_values, topk_indices = torch.topk(logits, opts.top_k, dim=-1)
+        topk_values, topk_indices = torch.topk(logits, opts.topk, dim=-1)
         probs = torch.softmax(topk_values / opts.sampling_temperature, dim=-1)
         inner_indices = torch.multinomial(
             probs.flatten(end_dim=-2), num_samples=1
@@ -145,7 +146,7 @@ def logits_to_tokens(
         gen_token_score = topk_values[:, :, :, 0].log()
 
     else:
-        raise NotImplementedError(f"opts.search_algo={opts.search_algo}")
+        raise NotImplementedError(f"search_algo={search_algo}")
 
     return gen_token_idx, gen_token_score
 

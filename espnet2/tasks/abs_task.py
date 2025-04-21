@@ -2257,6 +2257,7 @@ class AbsTask(ABC):
         config_file: Optional[Union[Path, str]] = None,
         model_file: Optional[Union[Path, str]] = None,
         device: str = "cpu",
+        dtype: Optional[str] = None,
     ) -> Tuple[AbsESPnetModel, argparse.Namespace]:
         """Build model from the files.
 
@@ -2266,7 +2267,7 @@ class AbsTask(ABC):
             config_file: The yaml file saved when training.
             model_file: The model file saved when training.
             device: Device type, "cpu", "cuda", or "cuda:N".
-
+            dtype: data type, float32, float16, bfloat16, etc.
         """
 
         if config_file is None:
@@ -2345,4 +2346,11 @@ class AbsTask(ABC):
                         raise
 
         model = model.to(device)
+        
+        if dtype is not None:
+            model = model.to(dtype=getattr(torch, dtype))
+        
+        if 'cuda' in device: # release GPU memory due to dtype change
+            torch.cuda.empty_cache()
+
         return model, args
