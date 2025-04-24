@@ -28,6 +28,8 @@ from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
 from espnet2.torch_utils.device_funcs import to_device
 from espnet.utils.cli_utils import get_commandline_args
 
+
+
 class SpeechLM:
     """ 
     The Chat Interface of SpeechLM 
@@ -58,7 +60,7 @@ class SpeechLM:
         self.train_args = train_args
 
         # Inference configs
-        self.infernece_config = build_inference_config(
+        self.inference_config = build_inference_config(
             train_args, 
             inference_config,
             device,
@@ -66,6 +68,9 @@ class SpeechLM:
         )
         self.inference_mode = inference_mode
         self.nbest = nbest
+
+        if self.inference_mode == "chat":
+            assert self.nbest == 1, "Batch inference in chat mode is not supported."
     
     @torch.no_grad()
     def __call__(self, data):
@@ -106,12 +111,13 @@ class SpeechLM:
                 extra_prefill_len = 1 if self.inference_mode == "task" else 2
                 prefill_buffer.append(segment[:, :extra_prefill_len, :])
                 prefill = torch.cat(prefill_buffer, dim=1)
+                prefill_buffer = []
 
                 # (3.3) find the corresponding inference config
                 modality_token = segment[0, extra_prefill_len - 1, 0].item()
                 modality_token = self.train_args.token_list[modality_token]
                 modality_token = modality_token.removeprefix("<").removesuffix("_start/end>")
-                inference_config = self.infernece_config[modality_token]
+                inference_config = self.inference_config[modality_token]
 
                 # (3.4) inference one segment
                 inferred_segments = self.inference_one_segment(
@@ -128,7 +134,7 @@ class SpeechLM:
                 all_segments.append(inferred_segments_new)
 
         return all_segments
-    
+
     def inference_one_segment(self, prefill, reference, inference_config):
         """ 
         Inference one turn with the prefill until certain requirements are met.
@@ -177,7 +183,7 @@ def get_parser():
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=8,
+        default=0,
         help="The number of workers used for DataLoader",
     )
     parser.add_argument(
@@ -303,14 +309,15 @@ def inference(
             task=task_name, 
             output_dir=output_dir, 
             rank=rank,
-            inference_config=speechlm.infernece_config,
+            inference_config=speechlm.inference_config,
         )
     elif inference_mode == "chat":
         writer = ChatOrientedWriter(
+            train_args=speechlm.train_args,
             task=task_name, 
             output_dir=output_dir, 
             rank=rank,
-            inference_config=speechlm.infernece_config,
+            inference_config=speechlm.inference_config,
         )
     # (5) Inference loop
     for iiter, (keys, batch) in enumerate(loader, 1):

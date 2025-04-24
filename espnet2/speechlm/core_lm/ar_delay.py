@@ -89,12 +89,12 @@ class ARDelayLM(ARParallelLM):
         reference: torch.Tensor,
         config: AbsInferenceConfig,
     ):
-
         # (1) Prefill
         prefill_delay, _ = self.delay_interleave(prefill)
         prefill_delay = prefill_delay[:, :-(config.nq - 1)]
         if config.search_algo == "teacher_force":
             reference_delay, _ = self.delay_interleave(reference)
+            reference_delay = reference_delay[:, :-(config.nq - 1)]
         else:
             reference_delay = None
 
@@ -125,7 +125,6 @@ class ARDelayLM(ARParallelLM):
         
         for step in range(0, maxlen):
             # (3.2) AR model prediction
-            
             prev_emb = self.emb(prev_tok).sum(dim=2)
             h = self.decoders(prev_emb)
             h = h.unsqueeze(2) + self.head_emb.weight.tile(1, 1, 1, 1)[:, :, : self.nq]
@@ -142,6 +141,9 @@ class ARDelayLM(ARParallelLM):
             # is the modality identifier.
             if step <= self.nq:
                 gen_tok[:, :, step + 1:] = 0
+            
+            # NOTE(Jinchuan): once finished, only PAD is allowed.
+            gen_tok = torch.where(finish_idx < 0, gen_tok, 0)
 
             if config.search_algo == "teacher_force":
                 prev_tok = reference_delay[:, step: step + 1]
@@ -168,6 +170,10 @@ class ARDelayLM(ARParallelLM):
             # more "self.nq - 1" steps after all finish_idx becomes non-negative
             if finish_idx.min() >= 0 and step - finish_idx.max() >= self.nq - 1:
                 break
+        
+        # (3.4) forward the last `prev_tok` to keep the correct KV-Cache
+        prev_emb = self.emb(prev_tok).sum(dim=2)
+        h = self.decoders(prev_emb)
 
         logging.info(f"Finish with lengths: {finish_idx.cpu().tolist()}")
 

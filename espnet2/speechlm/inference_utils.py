@@ -7,6 +7,7 @@
 import torch
 import torchaudio
 import logging
+import json
 
 from pathlib import Path
 from dataclasses import dataclass
@@ -199,7 +200,7 @@ class TaskOrientedWriter:
                         n_codebook=config.nq - 1,
                     )
                 
-                elif modality == "text_bpe":
+                elif modality_ == "text_bpe":
                     segment = segment[:, 0]
                     segment = segment.view(-1).contiguous()
                     detokenized = tokenizer.tokens2text(
@@ -224,18 +225,105 @@ class TaskOrientedWriter:
                     self.writers[name].write(f"{this_uid} {detokenized}\n")
                     logging.info(f"Save Text for {this_uid}: {detokenized}")
         
-        # assert 1 == 2
-
 
 class ChatOrientedWriter:
-    def __init__(self, task: str, output_dir: Path, rank: int = 0):
+    def __init__(
+        self,
+        train_args: Dict,
+        task: str, 
+        output_dir: Path, 
+        rank: int = 0,
+        inference_config: Dict[str, AbsInferenceConfig] = None,
+    ):
+        self.token_list = train_args.token_list
+        self.token_bias = train_args.token_bias
+        self.inference_config = inference_config
+        self.output_dir = output_dir / 'dialogue'
         self.task = task
-        self.output_dir = output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
+        self.rank = rank
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        file_name = str(self.output_dir / f"rank{rank}_dialogue")
+        self.writer = WriteHelper(
+            f"ark,scp:{file_name}_token.ark,{file_name}_token.scp"
+        )
+        self.buffer = []
     
     def write(self, name, all_segments):
-        pass
+        dialogue = []
 
+        for idx, segments in enumerate(all_segments):
+            # print('start to save segment: ', idx, segments, flush=True)
+            
+            # name
+            segment_name = f"{name}_segment{idx}"
+
+            # segment
+            if isinstance(segments, list):
+                is_prefill = False
+                assert len(segments) == 1
+            else:
+                is_prefill = True
+            segment = segments[0]
+
+            if idx == 0: # exclude <sos> and <task_specifier>
+                segment = segment[2:]
+
+            # role
+            role = segment[0][0]
+            if role == 8:
+                role = "system"
+            elif role == 9:
+                role = "user"
+            elif role == 10:
+                role = "assistant"
+            else:
+                raise ValueError("Invalid role token")
+            
+            modality = segment[1][0]
+            modality = self.token_list[modality]
+            modality = modality.removeprefix("<").removesuffix("_start/end>")
+
+            # detokenize
+            if modality == "codec_ssl":
+                segment = segment[:, 1:] - self.token_bias["codec"][0]
+                segment = segment.view(-1).contiguous()
+                detokenized = tokenizer.detokenize(
+                    segment.clone(),
+                    n_codebook=config.nq - 1,
+                )
+            
+            elif modality == "text_bpe":
+                segment = segment[:, 0]
+                segment = segment.view(-1).contiguous()
+                tokenizer = self.inference_config[modality].tokenizer
+                detokenized = tokenizer.tokens2text(
+                    [self.token_list[tok] for tok in segment]
+                ).strip()
+                segment = segment - self.token_bias['text_bpe'][0]
+            
+            # write
+            self.writer[segment_name] = segment.int().cpu().numpy()
+
+            if modality == "codec_ssl":
+                audio_path = str(self.output_dir / f"{segment_name}.wav")
+                save_audio(audio_path, detokenized)
+                detokenized = audio_path
+
+            dialogue.append([role, modality, is_prefill, detokenized])
+            logging.info(f"Index: {idx}, Role={role}, Modality={modality}, is_prefill={is_prefill}, Content={detokenized}")
+        
+        self.buffer.append({name: dialogue})
+        if len(self.buffer) % 1 == 0: # save results periodically
+            json_writer = open(
+                self.output_dir / f"rank{self.rank}_dialogue.json", 'wb'
+            )
+            json_writer.write(
+                json.dumps(self.buffer, indent=4, ensure_ascii=False, sort_keys=False).encode(
+                    "utf_8"
+                )
+            )
+        
 def parse_sequence(dec_seq, token_list, mode="task"):
     """
     Parse the sequence into multiple segments for inference. 
@@ -266,7 +354,9 @@ def parse_sequence(dec_seq, token_list, mode="task"):
     task_token = dec_seq[0, 1, 0].item() 
     task_token = token_list[task_token].removeprefix("<").removesuffix("_task>")
     task_template = SPEECHLM_TASKS[task_token]
-    assert len(task_template.data_triplets) == len(indices) - 1
+
+    if mode == "task":
+        assert len(task_template.data_triplets) == len(indices) - 1
     
     # (2) each segment is either a prefill or a target
     all_segments = []
