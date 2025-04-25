@@ -324,7 +324,7 @@ class ChatOrientedWriter:
                 )
             )
         
-def parse_sequence(dec_seq, token_list, mode="task"):
+def parse_sequence(dec_seq, token_list, mode="task", inference_last_segment=False):
     """
     Parse the sequence into multiple segments for inference. 
     Args:
@@ -378,6 +378,10 @@ def parse_sequence(dec_seq, token_list, mode="task"):
                 is_prefills.append(False)
             else:
                 is_prefills.append(True)
+    
+    if inference_last_segment:
+        for n in range(len(is_prefills) - 1):
+            is_prefills[n] = True
 
     return all_segments, is_prefills
 

@@ -27,7 +27,7 @@ from espnet2.speechlm.inference_utils import (
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
 from espnet2.torch_utils.device_funcs import to_device
 from espnet.utils.cli_utils import get_commandline_args
-
+from espnet2.utils.types import str2bool
 
 
 class SpeechLM:
@@ -49,6 +49,7 @@ class SpeechLM:
         # Inference parameters
         inference_config,
         inference_mode,
+        inference_last_segment,
         nbest,
         
     ):
@@ -67,6 +68,7 @@ class SpeechLM:
             nbest,
         )
         self.inference_mode = inference_mode
+        self.inference_last_segment = inference_last_segment
         self.nbest = nbest
 
         if self.inference_mode == "chat":
@@ -95,6 +97,7 @@ class SpeechLM:
             dec_seq,
             self.train_args.token_list,
             mode=self.inference_mode,
+            inference_last_segment=self.inference_last_segment,
         )
 
         # (3) Inference on each segments
@@ -219,6 +222,12 @@ def get_parser():
         help="Inference configuration file",
     )
     parser.add_argument(
+        "--inference_last_segment",
+        type=str2bool,
+        default=False,
+        help="Inference configuration file",
+    )
+    parser.add_argument(
         "--nbest",
         type=int,
         help="Number of best hypotheses to return",
@@ -250,6 +259,7 @@ def inference(
     dtype: str,
     # Inference_configs
     inference_config: Dict,
+    inference_last_segment: bool,
     nbest: int,
     # Data:
     data_path_and_name_and_type: str,
@@ -286,6 +296,7 @@ def inference(
         device=device,
         inference_config=inference_config,
         inference_mode=inference_mode,
+        inference_last_segment=inference_last_segment,
         nbest=nbest,
     )
 
@@ -341,6 +352,7 @@ def inference(
 
         # save results
         writer.write(key, all_segments)
+
     
 
 def main(cmd=None):

@@ -40,11 +40,30 @@ def main():
     input_emb = old_ckpt['corelm.emb.weight'][text_start: text_end]
     output_emb = old_ckpt['corelm.lm_head.weight'][text_start: text_end]
 
+    # (2.3) override special token
     input_emb[tgt_eos_token] = old_ckpt['corelm.emb.weight'][cur_eos_token]
     output_emb[tgt_eos_token] = old_ckpt['corelm.lm_head.weight'][cur_eos_token]
 
+    index = 100278
+    for token in [
+        "<text_bpe_start/end>",
+        "<system_prompt>",
+        "<user_input>",
+        "<assistant_output>",
+        "<text_dialogue_task>",
+        "<pad>"
+    ]:
+        cur_token_idx = config['token_list'].index(token)
+        input_emb[index] = old_ckpt['corelm.emb.weight'][cur_token_idx]
+        output_emb[index] = old_ckpt['corelm.lm_head.weight'][cur_token_idx]
+        
+        index += 1
+
     new_ckpt['model.embed_tokens.weight'] = input_emb
     new_ckpt['lm_head.weight'] = output_emb
+
+    # (2.4) add token bias, this is an workaround for a bug
+    new_ckpt['head_bias'] = old_ckpt["corelm.head_emb.weight"][0]
 
     # (3) save the checkpoint
     torch.save(new_ckpt, output_ckpt)

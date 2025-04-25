@@ -43,6 +43,7 @@ class ARParallelLM(AbsCoreLM):
             self.lm_head.weight = self.emb.weight
 
         self.head_emb = torch.nn.Embedding(12, transformer.d_model, padding_idx=0)
+        self.head_emb.weight[0] = 0
 
         if hasattr(self.decoders, "init_embeddings"):
             self.decoders.init_embeddings(self.emb, self.lm_head)
