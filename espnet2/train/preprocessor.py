@@ -5,7 +5,7 @@ import random
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Collection, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Collection, Dict, Iterable, List, Optional, Tuple, Union, Any
 
 import librosa
 import numpy as np
@@ -21,6 +21,7 @@ from espnet2.text.hugging_face_token_id_converter import HuggingFaceTokenIDConve
 from espnet2.text.token_id_converter import TokenIDConverter
 from espnet2.text.whisper_token_id_converter import OpenAIWhisperTokenIDConverter
 from espnet2.text.whisper_tokenizer import OpenAIWhisperTokenizer
+from espnet2.universa.metric_tokenizer.metric_tokenizer import MetricTokenizer
 
 
 class AbsPreprocessor(ABC):
@@ -2728,7 +2729,7 @@ class UniversaProcessor(AbsPreprocessor):
     def __init__(
         self,
         train: bool,
-        metric2type: Optional[Dict[str, str]] = None,
+        # for text processing
         token_type: Optional[str] = None,
         token_list: Union[Path, str, Iterable[str]] = None,
         bpemodel: Union[Path, str, Iterable[str]] = None,
@@ -2738,6 +2739,11 @@ class UniversaProcessor(AbsPreprocessor):
         space_symbol: str = "<space>",
         non_linguistic_symbols: Union[Path, str, Iterable[str]] = None,
         delimiter: Optional[str] = None,
+        # for metric processing
+        metric2type: Optional[Dict[str, str]] = None,
+        metric_token_list: Union[Path, str, Iterable[str]] = None,
+        tokenize_numerical_metric: bool = True,
+        # other parameters
         force_single_channel: bool = True,
         audio_volume_normalize: float = None,
         audio_name: str = "audio",
@@ -2754,6 +2760,8 @@ class UniversaProcessor(AbsPreprocessor):
         super().__init__(train)
         self.train = train
         self.metric2type = metric2type
+        self.metric_token_list = metric_token_list
+        self.tokenize_numerical_metric = tokenize_numerical_metric
         self.audio_name = audio_name
         self.ref_audio_name = ref_audio_name
         self.text_name = text_name
@@ -2782,6 +2790,23 @@ class UniversaProcessor(AbsPreprocessor):
         else:
             self.text_cleaner = None
             self.tokenizer = None
+
+        if self.metric2type is None:
+            # If no metric2type is set, all values are considered as numerical
+            # NOTE(jiatong): for backward compatibility
+            self.metric_tokenizer = None
+        else:
+            if not tokenize_numerical_metric:
+                tokenize_metric = [
+                    metric_name
+                    for metric_name in self.metric2type.keys()
+                    if self.metric2type[metric_name] == "categorical"
+                ]
+            else:
+                tokenize_metric = None
+            self.metric_tokenizer = MetricTokenizer(
+                metric_token_list, tokenize_metric=tokenize_metric
+            )
 
         self.fs = fs
 
@@ -2817,8 +2842,8 @@ class UniversaProcessor(AbsPreprocessor):
 
     @typechecked
     def _audio_process(
-        self, data: Dict[str, Union[str, np.ndarray, Dict[str, float]]]
-    ) -> Dict[str, Union[str, np.ndarray, Dict[str, float]]]:
+        self, data: Dict[str, Union[str, np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Any]]:
         for name in [self.audio_name, self.ref_audio_name]:
             if name in data:
 
@@ -2861,8 +2886,8 @@ class UniversaProcessor(AbsPreprocessor):
 
     @typechecked
     def _text_process(
-        self, data: Dict[str, Union[str, np.ndarray, Dict[str, float]]]
-    ) -> Dict[str, Union[str, np.ndarray, Dict[str, float]]]:
+        self, data: Dict[str, Union[str, np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Dict[str, Any]]]:
         if self.text_name in data and self.tokenizer is not None:
             text = data[self.text_name]
             if isinstance(text, np.ndarray):
@@ -2883,37 +2908,30 @@ class UniversaProcessor(AbsPreprocessor):
 
     @typechecked
     def _metric_process(
-        self, data: Dict[str, Union[np.ndarray, Dict[str, float]]]
-    ) -> Dict[str, Union[np.ndarray, Dict[str, float]]]:
-        if "metric" in data:
-            metric = data["metric"]
-            for key, value in metric.items():
-                if key in data:
-                    raise ValueError(
-                        f"Metric key {key} is the same as base keys, considering change metric name"
-                    )
-                if self.metric2type is not None and key in self.metric2type:
-                    if self.metric2type[key] == "int":
-                        metric[key] = int(value)
-                    elif self.metric2type[key] == "float":
-                        metric[key] = float(value)
-                    elif self.metric2type[key] == "str":
-                        metric[key] = str(value)
-                    else:
-                        raise ValueError(
-                            f"Unsupported metric type: {self.metric2type[key]}"
-                        )
-                else:
+        self, data: Dict[str, Union[np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Dict[str, Any]]]:
+        if "metrics" in data:
+            metric = data["metrics"]
+            if self.metric2type is None:
+                for key, value in metric.items():
+                    assert key in self.metric2type, f"Metric {key} not in metric2type"
+
                     metric[key] = float(value)
-            data["metric"] = metric
+            else:
+                metric = self.metric_tokenizer.metric2token(metric)
+                if not self.tokenize_numerical_metric:
+                    for key, value in metric.items():
+                        if self.metric2type[key] == "numerical":
+                            metric[key] = float(value)
+            data["metrics"] = metric
         return data
 
     @typechecked
     def __call__(
-        self, uid: str, data: Dict[str, Union[str, np.ndarray, Dict[str, float]]]
-    ) -> Dict[str, Union[str, np.ndarray, Dict[str, float]]]:
+        self, uid: str, data: Dict[str, Union[str, np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Dict[str, Any]]]:
 
-        data = self._audio_process(data)
         data = self._text_process(data)
+        data = self._audio_process(data)
         data = self._metric_process(data)
         return data

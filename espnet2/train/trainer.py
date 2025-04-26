@@ -160,7 +160,6 @@ class Trainer:
             checkpoint,
             weights_only=False,
             map_location=f"cuda:{torch.cuda.current_device()}" if ngpu > 0 else "cpu",
-            weights_only=False,
         )
         model.load_state_dict(states["model"], strict=strict)
         reporter.load_state_dict(states["reporter"])

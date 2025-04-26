@@ -96,6 +96,18 @@ class UniversaTask(AbsTask):
             help="A text mapping int-id to token",
         )
         group.add_argument(
+            "--metric_token_list",
+            type=str_or_none,
+            default=None,
+            help="A token mapping int-id to token",
+        )
+        group.add_argument(
+            "--tokenize_numerical_metric",
+            type=str2bool,
+            default=False,
+            help="Whether to tokenize numerical metrics or not",
+        )
+        group.add_argument(
             "--init",
             type=lambda x: str_or_none(x.lower()),
             default=None,
@@ -204,6 +216,8 @@ class UniversaTask(AbsTask):
                 text_cleaner=args.cleaner,
                 g2p_type=args.g2p,
                 metric2type=args.metric2type,
+                metric_token_list=args.metric_token_list,
+                tokenize_numerical_metric=args.tokenize_numerical_metric,
             )
         else:
             retval = None
