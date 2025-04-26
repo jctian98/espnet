@@ -23,7 +23,7 @@ loss_region: target
 # General Dataloader configuration
 batch_type: numel
 batch_bins: 16000
-max_epoch: 10
+max_epoch: 2
 num_workers: 6
 drop_last_iter: true
 log_interval: 100
@@ -47,7 +47,7 @@ deepspeed_config: conf/deepspeed_ddp_zero2_olmo.json
 deepspeed_step_sync: false
 
 # Pre-Trained Model
-init_param: 
-  - exp/opuslm_7b_baseline/205epoch_revised.pth
+# init_param: 
+#   - exp/opuslm_7b_baseline/205epoch_revised.pth
 
 seed: 999

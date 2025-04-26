@@ -1,6 +1,8 @@
 nproc: 1
-# dtype: bfloat16
-dtype: float32
+dtype: bfloat16
+# dtype: float32
+
+inference_last_segment: true
 
 codec_ssl:
     search_algo: topk_sampling
@@ -15,9 +17,9 @@ codec_ssl:
       hf_model_tag: ftshijt/espnet_codec_dac_large_v1.4_360epoch
   
 text_bpe:
-    search_algo: topk_sampling
+    search_algo: greedy_search
     sampling_temperature: 0.8
-    topk: 50
+    topk: 20
     length_method: absolute
     maxlen: 2048
     minlen: 1

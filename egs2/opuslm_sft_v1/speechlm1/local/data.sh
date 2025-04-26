@@ -18,8 +18,8 @@ log() {
 }
 SECONDS=0
 
-stage=2
-stop_stage=2
+stage=3
+stop_stage=3
 
 TULU3=data/local/tulu3
 OpenAudioBench=data/local/openaudiobench
@@ -57,5 +57,14 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     python3 local/data_prep_openaudiobench.py \
       --download_dir ${OpenAudioBench}/eval_datas \
       --output_dir dump/raw_text_dialogue_openaudiobench
+    
+    for dset in alpaca_eval llama_questions trivia_qa web_questions; do
+        dir=dump/raw_text_dialogue_openaudiobench/${dset}
+        cp ${dir}/data/dialogue.1 ${dir}/dialogue
+        python3 pyscripts/utils/make_speechlm_json.py \
+          --task text_dialogue \
+          --output_json ${dir}/data.json \
+          --file_modality_type ${dir}/dialogue,dialogue,dialogue_json
+    done
     
 fi
