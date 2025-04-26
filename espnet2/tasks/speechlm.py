@@ -22,7 +22,7 @@ from espnet2.speechlm.core_lm.valle import ValleLM
 
 # Overall model warppers
 from espnet2.speechlm.espnet_model import ESPnetSpeechLMModel
-from espnet2.speechlm.espnet_model_rl import ESPnetSpeechLMRLModel
+from espnet2.speechlm.espnet_model_dpo import ESPnetSpeechLMDPOModel
 
 # Tokenizers
 from espnet2.speechlm.tokenizer.abs_tokenizer import AbsTokenizer
@@ -98,7 +98,7 @@ model_choices = ClassChoices(
     "model",
     classes=dict(
         espnet=ESPnetSpeechLMModel,
-        rl=ESPnetSpeechLMRLModel,
+        dpo=ESPnetSpeechLMDPOModel,
     ),
     type_check=AbsESPnetModel,
     default="espnet",
@@ -335,6 +335,7 @@ class SpeechLMTask(AbsTask):
             asr_time_mask_config=args.asr_time_mask_config,
             audio_modality=getattr(args, "audio_modality", "codec_ssl"),
             vision_encoder_processor_conf=getattr(args, "vision_encoder_conf", {}),
+            is_dpo=args.model == "dpo",
         )
 
         return retval
@@ -419,7 +420,7 @@ class SpeechLMTask(AbsTask):
         )
         kwargs.update(corelm=corelm)
 
-        # 4. Build traiing criterion
+        # 4. Build training criterion
         criterion = SpeechLMCrossEntropyLossV2(
             pad=token_list.index("<pad>"),
             token_bias=token_bias.copy(),

@@ -301,7 +301,7 @@ class SpeechLMCrossEntropyLossV2(torch.nn.Module):
                     acc_layer = torch.Tensor([0]).to(device).float()
                 stats[f'acc_layer{n}'] = acc_layer.clone().detach()
 
-        return loss, stats, frame_count
+        return loss, elem_loss, stats, frame_count
     
     def forward_interval(self, hidden, targets, interval=None):
         shape = targets.size()

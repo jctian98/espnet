@@ -37,35 +37,33 @@ def main():
     output_dir=args.output_dir
 
     # (1) create dataset objects
-    tulu3 = load_dataset(
-        "allenai/tulu-3-sft-mixture", 
+    olmo2_dpo = load_dataset(
+        "allenai/olmo-2-1124-7b-preference-mix", 
         cache_dir=download_dir, 
         num_proc=6,
     )['train']
     train_dataset = DialogueDataset(task="text_dialogue")
     valid_dataset = DialogueDataset(task="text_dialogue")
 
-    for example in tulu3:
-        example_id = example['id']
-        messages = example['messages']
-        
+    for example in olmo2_dpo:
+        example_id = example['id'].replace("/", "_")
         dialogue = Dialogue(task="text_dialogue")
+        is_valid_data = random.random() < 0.005
+        for option in ['chosen', 'rejected']:
+            
+            messages = example[option]
 
-        for msg in messages:
-            content = msg['content']
-            role = msg['role']
-            modality = "text_bpe"
-            target = role == "assistant"
-
-            assert role in ["user", "assistant", "system"], f"Invalid role: {role}"
-            dialogue.add_segment(role, modality, target, content)
-
-        if not example_id in train_dataset:
-            train_dataset.add_dialogue(example_id, dialogue)
-            if random.random() < 0.005:
-                valid_dataset.add_dialogue(example_id, dialogue)
-        else:
-            logging.info(f"Find duplicated example: {example_id}. Skip it.")
+            for idx, msg in enumerate(messages):
+                dialogue.add_segment(
+                    role=msg['role'],
+                    modality='text_bpe',
+                    target=(idx == len(messages) - 1),
+                    content=msg['content']
+                )
+            
+        train_dataset.add_dialogue(example_id, dialogue)
+        if is_valid_data:
+            valid_dataset.add_dialogue(example_id, dialogue)
         
     # (2) save dataset
     output_dir.mkdir(parents=True, exist_ok=True)
