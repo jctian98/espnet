@@ -1,10 +1,10 @@
 import argparse
+import json
 import logging
 from pathlib import Path
 from typing import Callable, Collection, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import json
 import torch
 import yaml
 from typeguard import typechecked

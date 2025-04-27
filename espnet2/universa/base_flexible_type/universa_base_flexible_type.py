@@ -61,6 +61,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
             "qk_norm": False,
             "use_flash_attn": False,
         },
+        metric_vocab_size: Optional[int] = None,
         # Text processor
         vocab_size: Optional[int] = None,
         ignore_id: int = -1,
@@ -147,6 +148,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
         self.metric2id = metric2id
         self.id2metric = {v: k for k, v in metric2id.items()}
         self.vocab_size = vocab_size
+        self.metric_vocab_size = metric_vocab_size
         self.ignore_id = ignore_id
         self.use_ref_audio = use_ref_audio
         self.use_ref_text = use_ref_text
@@ -301,6 +303,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
 
         """
         batch_size = audio.shape[0]
+        print(f"batch_size: {batch_size}, audio: {audio.shape}, audio_lengths: {audio_lengths.shape}, metrics: {metrics}", flush=True)
 
         # 1. Prepare metrics
         final_metrics = []
@@ -358,16 +361,21 @@ class UniversaBaseFlexibleType(AbsUniversa):
             elif metric_type == "categorical":
                 final_metrics[i] = final_metrics[i].long()
                 final_metric_mask = final_metrics[i] != self.metric_token_pad_value
-                metric_loss = F.cross_entropy(
-                    pred_metric.view(-1, self.vocab_size),
-                    final_metrics[i].view(-1),
-                    ignore_index=self.metric_token_pad_value,
-                    reduction="mean",
-                )
+                if final_metric_mask.sum() == 0:
+                    metric_loss = torch.tensor(0.0).to(audio_enc.device)
+                else:
+                    metric_loss = F.cross_entropy(
+                        pred_metric.view(-1, self.vocab_size),
+                        final_metrics[i].view(-1),
+                        ignore_index=self.metric_token_pad_value,
+                        reduction="mean",
+                    )
                 stats[self.id2metric[i] + "_cross_entropy"] = metric_loss.detach()
                 metric_loss = metric_loss * self.loss_weights[i]
             stats[self.id2metric[i] + "_overall"] = metric_loss.detach()
             loss = loss + metric_loss
+
+            # print(f"loss: {loss}, metric_loss: {metric_loss}, pred_metric: {pred_metric.shape}, final_metrics: {final_metrics[i]}")
         stats["loss"] = loss.detach()
 
         # force_gatherable: to-device and to-tensor if scalar for DataParallel

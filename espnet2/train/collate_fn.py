@@ -1,11 +1,11 @@
 import logging
 import math
+import random
 from typing import Collection, Dict, List, Tuple, Union
 
-import random
-import soundfile
-import scipy.signal
 import numpy as np
+import scipy.signal
+import soundfile
 import torch
 from typeguard import typechecked
 
@@ -596,7 +596,7 @@ class UniversaCollateFn(CommonCollateFn):
                 # use metric_meta_label. only use metric_value
                 tensor = torch.tensor(
                     [
-                        m.get(metric[-1], self.metric_token_pad_value)
+                        m.get(metric, (0, self.metric_token_pad_value))[-1]
                         for m in metrics_data
                     ]
                 )
@@ -605,4 +605,5 @@ class UniversaCollateFn(CommonCollateFn):
         output["metrics"] = output_metrics
 
         output = (uttids, output)
+
         return output

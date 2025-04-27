@@ -5,7 +5,7 @@ import random
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Collection, Dict, Iterable, List, Optional, Tuple, Union, Any
+from typing import Any, Collection, Dict, Iterable, List, Optional, Tuple, Union
 
 import librosa
 import numpy as np
@@ -2975,12 +2975,12 @@ class UniversaProcessor(AbsPreprocessor):
 
                     metric[key] = float(value)
             else:
-                metric = self.metric_tokenizer.metric2token(metric)
+                updated_metric = self.metric_tokenizer.metric2token(metric)
                 if not self.tokenize_numerical_metric:
                     for key, value in metric.items():
                         if self.metric2type[key] == "numerical":
-                            metric[key] = float(value)
-            data["metrics"] = metric
+                            updated_metric[key] = float(value)
+            data["metrics"] = updated_metric
         return data
 
     @typechecked
