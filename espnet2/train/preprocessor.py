@@ -2741,7 +2741,7 @@ class UniversaProcessor(AbsPreprocessor):
         delimiter: Optional[str] = None,
         # for metric processing
         metric2type: Optional[Dict[str, str]] = None,
-        metric_token_list: Union[Path, str, Iterable[str]] = None,
+        metric_token_info: Union[Path, str, Iterable[str]] = None,
         tokenize_numerical_metric: bool = True,
         # other parameters
         force_single_channel: bool = True,
@@ -2760,7 +2760,7 @@ class UniversaProcessor(AbsPreprocessor):
         super().__init__(train)
         self.train = train
         self.metric2type = metric2type
-        self.metric_token_list = metric_token_list
+        self.metric_token_info = metric_token_info
         self.tokenize_numerical_metric = tokenize_numerical_metric
         self.audio_name = audio_name
         self.ref_audio_name = ref_audio_name
@@ -2805,7 +2805,7 @@ class UniversaProcessor(AbsPreprocessor):
             else:
                 tokenize_metric = None
             self.metric_tokenizer = MetricTokenizer(
-                metric_token_list, tokenize_metric=tokenize_metric
+                metric_token_info, tokenize_metric=tokenize_metric
             )
 
         self.fs = fs

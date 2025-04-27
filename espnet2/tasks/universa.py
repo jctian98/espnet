@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable, Collection, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import json
 import torch
 import yaml
 from typeguard import typechecked
@@ -21,6 +22,7 @@ from espnet2.train.preprocessor import UniversaProcessor
 from espnet2.train.trainer import Trainer
 from espnet2.universa.abs_universa import AbsUniversa
 from espnet2.universa.base import UniversaBase
+from espnet2.universa.base_flexible_type import UniversaBaseFlexibleType
 from espnet2.universa.espnet_model import ESPnetUniversaModel
 from espnet2.utils.get_default_kwargs import get_default_kwargs
 from espnet2.utils.nested_dict_action import NestedDictAction
@@ -40,10 +42,54 @@ universa_choices = ClassChoices(
     "universa",
     classes=dict(
         base=UniversaBase,
+        base_flex=UniversaBaseFlexibleType,
     ),
     type_check=AbsUniversa,
     default="base",
 )
+
+
+def parse_metrics_meta(file_path, return_list=False):
+    """
+    Parse metric data from a text file.
+
+    Args:
+        file_path (str): Path to the text file containing metric data
+        return_list (bool): If True, return only a list of metric names
+                           If False, return a dictionary of metrics and their types
+
+    Returns:
+        dict or list: Dictionary with metric names as keys and types as values,
+                     or a list of metric names if return_list is True
+    """
+    metrics_dict = {}
+    metrics_list = []
+
+    try:
+        # Open and read the file
+        with open(file_path, "r") as file:
+            # Process each line in the file
+            for line in file:
+                line = line.strip()
+                if line:  # Skip empty lines
+                    parts = line.split()
+                    if return_list:
+                        # Only add the metric name to the list
+                        metrics_list.append(parts[0])
+                    elif len(parts) >= 2:
+                        # Add the metric name and type to the dictionary
+                        metric_name = parts[0]
+                        metric_type = parts[1]
+                        metrics_dict[metric_name] = metric_type
+
+        return metrics_list if return_list else metrics_dict
+
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+        return None
+    except Exception as e:
+        print(f"Error processing file: {e}")
+        return None
 
 
 class UniversaTask(AbsTask):
@@ -96,10 +142,16 @@ class UniversaTask(AbsTask):
             help="A text mapping int-id to token",
         )
         group.add_argument(
-            "--metric_token_list",
+            "--metric_token_info",
             type=str_or_none,
             default=None,
             help="A token mapping int-id to token",
+        )
+        group.add_argument(
+            "--metric_token_pad_value",
+            type=int,
+            default=0,
+            help="The padding value for metric token",
         )
         group.add_argument(
             "--tokenize_numerical_metric",
@@ -179,6 +231,18 @@ class UniversaTask(AbsTask):
             default=None,
             help="Specify g2p method if --token_type=phn",
         )
+        group.add_argument(
+            "--sequential_metric",
+            type=str2bool,
+            default=False,
+            help="Whether to use sequential metric or not",
+        )
+        group.add_argument(
+            "--randomize_sequential_metric",
+            type=str2bool,
+            default=False,
+            help="Whether to randomize sequential metric or not",
+        )
 
         for class_choices in cls.class_choices_list:
             # Append --<name> and --<name>_conf.
@@ -191,14 +255,41 @@ class UniversaTask(AbsTask):
         [Collection[Tuple[str, Dict[str, np.ndarray]]]],
         Tuple[List[str], Dict[str, torch.Tensor]],
     ]:
-        metrics_list = open(args.metric2id, "r").read().strip().split("\n")
+        metrics_list = parse_metrics_meta(args.metric2id, return_list=True)
+
+        # parse metrics2type
+        if args.metric2type is None:
+            numerical_metrics = metrics_list
+            categorical_metrics = []
+        else:
+            metric2type = parse_metrics_meta(args.metric2type, return_list=False)
+            if not args.tokenize_numerical_metric:
+                numerical_metrics, categorical_metrics = [], []
+                for metric_name in metric2type.keys():
+                    if metric2type[metric_name] == "numerical":
+                        numerical_metrics.append(metric_name)
+                    else:
+                        categorical_metrics.append(metric_name)
+            else:
+                categorical_metrics = metrics_list
+                numerical_metrics = []
+
+        if args.sequential_metric:
+            not_sequence = []
+        else:
+            not_sequence = ["metrics"]
+
         # To differentiate the padding value for metrics' value
         return UniversaCollateFn(
-            metrics_list=metrics_list,
+            numerical_metrics=numerical_metrics,
+            categorical_metrics=categorical_metrics,
+            sequential_metric=args.sequential_metric,
             float_pad_value=0.0,
             metric_pad_value=args.metric_pad_value,
+            metric_token_pad_value=args.metric_token_pad_value,
             int_pad_value=0,
-            not_sequence=["metrics"],
+            not_sequence=not_sequence,
+            randomize=args.randomize_sequential_metric,
         )
 
     @classmethod
@@ -206,6 +297,10 @@ class UniversaTask(AbsTask):
     def build_preprocess_fn(
         cls, args: argparse.Namespace, train: bool
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
+
+        if args.metric2type is not None:
+            metric2type = parse_metrics_meta(args.metric2type, return_list=False)
+
         if args.use_preprocessor:
             retval = UniversaProcessor(
                 train=train,
@@ -215,8 +310,8 @@ class UniversaTask(AbsTask):
                 non_linguistic_symbols=args.non_linguistic_symbols,
                 text_cleaner=args.cleaner,
                 g2p_type=args.g2p,
-                metric2type=args.metric2type,
-                metric_token_list=args.metric_token_list,
+                metric2type=metric2type,
+                metric_token_info=args.metric_token_info,
                 tokenize_numerical_metric=args.tokenize_numerical_metric,
             )
         else:
@@ -255,9 +350,31 @@ class UniversaTask(AbsTask):
     @typechecked
     def build_model(cls, args: argparse.Namespace) -> ESPnetUniversaModel:
         # Load metric2id
-        with open(args.metric2id, "r") as f:
-            mappings = f.read().strip().split("\n")
-            metric2id = {m: i for i, m in enumerate(mappings)}
+        metric2id = {
+            m: i
+            for i, m in enumerate(parse_metrics_meta(args.metric2id, return_list=True))
+        }
+        metric2type = (
+            parse_metrics_meta(args.metric2type, return_list=False)
+            if args.metric2type
+            else None
+        )
+
+        # Process metric token list
+        if args.metric_token_info is not None:
+            if isinstance(args.metric_token_info, str):
+                with open(args.metric_token_info, "r") as f:
+                    metric_token_info = json.load(f)
+            else:
+                raise ValueError("metric_token_info must be str or list")
+            metric_vocab_size = (
+                len(metric_token_info["VOCAB"]) + 2
+            )  # +2 for <pad> and <unk>
+            logging.info("Metric vocabulary size: " + str(metric_vocab_size))
+        else:
+            metric_vocab_size = None
+
+        # Process text token list
         if args.token_list is not None:
             if isinstance(args.token_list, str):
                 with open(args.token_list, "r") as f:
@@ -291,7 +408,11 @@ class UniversaTask(AbsTask):
             use_ref_audio=args.use_ref_audio,
             use_ref_text=args.use_ref_text,
             metric_pad_value=args.metric_pad_value,
-            **args.universa_conf
+            metric_token_pad_value=args.metric_token_pad_value,
+            metric2type=metric2type,
+            metric_vocab_size=metric_vocab_size,
+            sequential_metrics=args.sequential_metric,
+            **args.universa_conf,
         )
 
         # 3. Build model
