@@ -49,18 +49,19 @@ class ESPnetSpeechLMDPOModel(AbsESPnetModel):
         loss_mask = torch.cat([loss_mask[..., 0], loss_mask[..., 1]], dim=0)
 
         # (1) LM forward
-        _, policy_elem_logp, _, _ = self.criterion(
+        policy_ce_loss, policy_elem_logp, _, _ = self.criterion(
             *self.corelm(dec_seq, loss_mask)
         )
 
         with torch.no_grad():
-            _, ref_elem_logp, _, _ = self.criterion(
+            ref_ce_loss, ref_elem_logp, _, _ = self.criterion(
                 *self.reflm(dec_seq, loss_mask)
             )
         
         # (2) DPO
-        policy_logp = policy_elem_logp.sum(dim=(1, 2))
-        ref_logp = ref_elem_logp.sum(dim=(1, 2))
+        # neg-log-likelihood -> log-likelihood
+        policy_logp = - policy_elem_logp.sum(dim=(1, 2))
+        ref_logp = - ref_elem_logp.sum(dim=(1, 2))
 
         num = len(policy_logp) // 2
         pos_policy_logp = policy_logp[:num]
@@ -87,22 +88,41 @@ class ESPnetSpeechLMDPOModel(AbsESPnetModel):
         neg_ref_logp: torch.Tensor,
     ):
         logits = (pos_policy_logp - neg_policy_logp) - (pos_ref_logp - neg_ref_logp)
-        loss = torch.nn.functional.logsigmoid(logits * self.beta)
+        loss = - torch.nn.functional.logsigmoid(logits * self.beta)
 
         pos_reward = pos_policy_logp - pos_ref_logp
         neg_reward = neg_policy_logp - neg_ref_logp
-        acc = (pos_reward > neg_reward).float() / len(pos_reward)
+        reward_gap = pos_reward - neg_reward
+        win_rate = (reward_gap > 0).float().sum() / len(reward_gap)
+        loss_rate = (reward_gap < 0).float().sum() / len(reward_gap)
+        equal_rate = (reward_gap == 0).float().sum() / len(reward_gap)
 
         stats = {
             "loss_dpo": loss,
             "pos_reward": pos_reward,
             "neg_reward": neg_reward,
-            "reward_gap": pos_reward - neg_reward,
-            "reward_acc": acc,
+            "reward_gap": reward_gap,
+            "win_rate": win_rate,
+            "loss_rate": loss_rate,
+            "equal_rate": equal_rate,
         }
         stats = {k: v.clone().detach().mean() for k, v in stats.items()}
 
-        return loss, stats
+        return loss.mean(), stats
     
     def collect_feats(self, **kwargs):
         raise NotImplementedError
+    
+    def load_state_dict(self, state_dict, strict=True, assign=False):
+        """ Make the reflm the same as corelm """
+        keys = [key for key in state_dict if key.startswith('corelm')]
+        for key in keys:
+            ref_key = key.replace("corelm.", "reflm.")
+            state_dict[ref_key] = state_dict[key]
+        super().load_state_dict(state_dict, strict, assign)
+    
+    def state_dict(self, **kwargs):
+        """ Only save the corelm parameters, not reflm """
+        state_dict = super().state_dict(**kwargs)
+        state_dict = {k: v for k, v in state_dict.items() if k.startswith("corelm.")}
+        return state_dict

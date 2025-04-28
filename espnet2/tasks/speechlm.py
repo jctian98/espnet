@@ -255,6 +255,13 @@ class SpeechLMTask(AbsTask):
                  "Otherwise on the whole sequences"
         )
         group.add_argument(
+            "--loss_type",
+            type=str,
+            choices=["sum", "mean"],
+            default="mean",
+            help="Loss compute in token-level mean (mean) or sequence-level mean (sum)"
+        )
+        group.add_argument(
             "--audio_modality",
             type=str,
             choices=["codec_ssl", "codec", "ssl"],
@@ -427,6 +434,7 @@ class SpeechLMTask(AbsTask):
             modality_weights=args.modality_weights,
             image_interval_split=getattr(args, "image_token_per_patch", 1),
             lm_head=corelm.lm_head,
+            loss_type=args.loss_type,
         )
         kwargs.update(criterion=criterion)
 
