@@ -30,7 +30,6 @@ if __name__ == "__main__":
             args.reading_size if args.reading_size > 0 else len(metric_reader)
         )
         metric2id = set()
-        id = 0
         with open(args.metric2id, "w") as f:
             row_num = 0
             for key, metric in metric_reader.items():
@@ -39,7 +38,6 @@ if __name__ == "__main__":
                         continue
                     metric2id.add(k)
                     f.write(f"{k}\n")
-                    id += 1
                 row_num += 1
                 if row_num > reading_size:
                     print(f"Reading size reached {reading_size}, stop reading.")

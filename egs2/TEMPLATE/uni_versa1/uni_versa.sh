@@ -62,6 +62,14 @@ bpe_input_sentence_size=100000000 # Size of input sentence for BPE for text.
 bpe_nlsyms=         # non-linguistic symbols list, separated by a comma, for BPE of text.
 bpe_char_cover=1.0  # character coverage when modeling BPE for text.
 
+# Metric Tokenization related
+tokenize_metric=true # Whether to tokenize numerical metrics or not.
+metric_token_size=100 # The number of metric vocabulary for text.
+metric_token_method=percentile # Mode of metric tokenization (percentile only).
+metric_token_percentile_distribution=linear # Distribution of percentile for metric tokenization.
+metric2token_size= # The number of metric2token vocabulary for text.
+metric2percentile_distribution= # Distribution of percentile for metric2tokenization.
+
 # Training related
 train_config=""    # Config for training.
 train_args=""      # Arguments for training, e.g., "--max_epoch 1".
@@ -144,6 +152,13 @@ Options:
     --bpe_nlsyms=             # Non-linguistic symbols list, separated by a comma, for BPE of text. (default="${bpe_nlsyms}").
     --bpe_char_cover=1.0      # Character coverage when modeling BPE for text. (default="${bpe_char_cover}").
 
+    # Metric Tokenization related
+    --tokenize_metric=true   # Whether to tokenize numerical metrics or not (default="${tokenize_metric}").
+    --metric_token_size=100   # The number of metric vocabulary for text. (default="${metric_token_size}").
+    --metric_token_method=percentile # Mode of metric tokenization (percentile only). (default="${metric_token_method}").
+    --metric_token_percentile_distribution=linear # Distribution of percentile for metric tokenization. (default="${metric_token_percentile_distribution}").
+    --metric2token_size= # The number of metric2token vocabulary for text. (default="${metric2token_size}").
+    --metric2percentile_distribution= # Distribution of percentile for metric2tokenization. (default="${metric2percentile_distribution}").
 
     # Training related
     --train_config  # Config for training (default="${train_config}").
@@ -226,6 +241,9 @@ bpeprefix="${bpedir}"/bpe
 bpemodel="${bpeprefix}".model
 bpetoken_list="${bpedir}"/tokens.txt
 chartoken_list="${token_listdir}"/char/tokens.txt
+
+metric_token_dir="${token_listdir}"/metric_${metric_token_size}_${metric_token_method}
+metric_token_info="${metric_token_dir}"/tokens.json
 
 if [ "${token_type}" = bpe ]; then
     token_list="${bpetoken_list}"
@@ -353,25 +371,32 @@ if ! "${skip_data_prep}"; then
     fi
 
     if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
-        log "Stage 3: Prepare metric ID"
+        log "Stage 3: Prepare metric ID and metric information"
+
+        if [ -z "${metric2type}"] ; then
+            log "metric2type is not specified. Generate it from metric.scp"
+            python pyscripts/utils/universa_related/prep_metric_type.py \
+                "${data_feats}/org/${train_set}"/metric.scp \
+                "${data_feats}/org/${train_set}"/metric2type
+            
+            metric2type="${data_feats}/org/${train_set}"/metric2type
+            cp -r "${data_feats}/org/${train_set}"/metric2type "${data_feats}/${train_set}"
+        else
+            log "metric2type is already specified. Skip this stage."
+            cp -r ${metric2type} "${data_feats}/${train_set}"
+        fi
 
         if [ -z "${metric2id}" ] ; then
-            if [ -z "${metric2type}" ] ; then
-                log "metric2id and metric2type are not specificed. Generate it from metric.scp"
-                python pyscripts/utils/prep_metric_id.py \
-                    "${data_feats}/org/${train_set}"/metric.scp \
-                    "${data_feats}/org/${train_set}"/metric2id
-            else
                 log "metric2id_file is not specificed but metric2type is. Generate it from metric2type"
-                python pyscripts/utils/prep_metric_id.py \
+                python pyscripts/utils/universa_related/prep_metric_id.py \
                     "${data_feats}/org/${train_set}"/metric.scp \
                     "${data_feats}/org/${train_set}"/metric2id \
-                    --metric_type ${metric2type}
-            fi
-
+                    --metric2type ${metric2type}
+                
+                cp -r "${data_feats}/org/${train_set}"/metric2id "${data_feats}/${train_set}"
         else
             log "metric2id is already specified. Skip this stage."
-            cp -r "${data_feats}/org/${train_set}"/metric2id "${data_feats}/${train_set}"
+            cp -r ${metric2id} "${data_feats}/${train_set}"
         fi
 
     fi
@@ -494,17 +519,70 @@ if ! "${skip_data_prep}"; then
 
     fi
 
+    if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
+        log "Stage 6: Feature tokenization (for both numerical and categorical)."
+
+        # Set default metric2type and metric2id if not specificed
+        if [ -z "${metric2type}" ]; then
+            metric2type="${data_feats}/${train_set}/metric2type"
+        fi
+        if [ -z "${metric2id}" ]; then
+            metric2id="${data_feats}/${train_set}/metric2id"
+        fi
+
+        mkdir -p "${metric_token_dir}"
+
+        _opts=
+        if [ -n "${metric2token_size}" ]; then
+            _opts+="--metric2token_size ${metric2token_size} "
+        fi
+        if [ -n "${metric2percentile_distribution}" ]; then
+            _opts+="--metric2percentile_distribution ${metric2percentile_distribution} "
+        fi
+
+        if ${tokenize_metric}; then
+            log "Setup Metric Tokenizer, Saving to ${metric_token_info}"
+            # shellcheck disable=SC2086
+            ${python} pyscripts/utils/universa_related/train_metric_tokenizer.py \
+                --input "${data_feats}/${train_set}/metric.scp" \
+                --metric2type ${metric2type} \
+                --metric2id ${metric2id} \
+                --tokenizer_info "${metric_token_info}" \
+                --token_size "${metric_token_size}" \
+                --token_method "${metric_token_method}" \
+                --percentile_distribution "${metric_token_percentile_distribution}" \
+                ${_opts}
+        else
+            log "Only conduct tokenizer for categorical metrics"
+            log "Setup Metric Tokenizer, Saving to ${metric_token_info}"
+            # shellcheck disable=SC2086
+            ${python} pyscripts/utils/universa_related/train_metric_tokenizer.py \
+                --input "${data_feats}/${train_set}/metric.scp" \
+                --metric2type ${metric2type} \
+                --metric2id ${metric2id} \
+                --tokenizer_info "${metric_token_info}" \
+                --categorical_only
+        fi
+    fi
+
 else
     log "Skip the stages for data preparation"
 fi
 # ========================== Data preparation is done here. ==========================
 
+# Set default metric2type and metric2id if not specificed
+if [ -z "${metric2type}" ]; then
+    metric2type="${data_feats}/${train_set}/metric2type"
+fi
+if [ -z "${metric2id}" ]; then
+    metric2id="${data_feats}/${train_set}/metric2id"
+fi
 
 if ! "${skip_train}"; then
-    if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
+    if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
         _train_dir="${data_feats}/${train_set}"
         _valid_dir="${data_feats}/${valid_set}"
-        log "Stage 6: Universa collect stats: train_set=${_train_dir}, valid_set=${_valid_dir}"
+        log "Stage 7: Universa collect stats: train_set=${_train_dir}, valid_set=${_valid_dir}"
 
         _opts=
         if [ -n "${train_config}" ]; then
@@ -544,8 +622,8 @@ if ! "${skip_train}"; then
         utils/split_scp.pl "${key_file}" ${split_scps}
 
         # 2. Generate run.sh
-        log "Generate '${universa_stats_dir}/run.sh'. You can resume the process from stage 6 using this script"
-        mkdir -p "${universa_stats_dir}"; echo "${run_args} --stage 6 \"\$@\"; exit \$?" > "${universa_stats_dir}/run.sh"; chmod +x "${universa_stats_dir}/run.sh"
+        log "Generate '${universa_stats_dir}/run.sh'. You can resume the process from stage 7 using this script"
+        mkdir -p "${universa_stats_dir}"; echo "${run_args} --stage 7 \"\$@\"; exit \$?" > "${universa_stats_dir}/run.sh"; chmod +x "${universa_stats_dir}/run.sh"
 
         # 3. Submit jobs
         log "Universa collect_stats started... log: '${_logdir}/stats.*.log'"
@@ -568,6 +646,10 @@ if ! "${skip_train}"; then
             _opts+="--metric2type ${metric2type} "
         fi
 
+        if [ ${tokenize_metric} = true ]; then
+            _opts+="--tokenize_numerical_metric ${tokenize_metric} "
+        fi
+
         # shellcheck disable=SC2046,SC2086
         ${train_cmd} JOB=1:"${_nj}" "${_logdir}"/stats.JOB.log \
             ${python} -m "espnet2.bin.universa_train" \
@@ -577,7 +659,9 @@ if ! "${skip_train}"; then
                 --train_data_path_and_name_and_type "${_train_dir}/metric.scp,metrics,metric" \
                 --valid_data_path_and_name_and_type "${_valid_dir}/${_scp},audio,${_type}" \
                 --valid_data_path_and_name_and_type "${_valid_dir}/metric.scp,metrics,metric" \
-                --metric2id "${data_feats}/${train_set}/metric2id" \
+                --metric2id ${metric2id} \
+                --metric2type "${metric2type}" \
+                --metric_token_info "${metric_token_info}" \
                 --train_shape_file "${_logdir}/train.JOB.scp" \
                 --valid_shape_file "${_logdir}/valid.JOB.scp" \
                 --output_dir "${_logdir}/stats.JOB" \
@@ -591,10 +675,10 @@ if ! "${skip_train}"; then
         ${python} -m espnet2.bin.aggregate_stats_dirs --skip_sum_stats ${_opts} --output_dir "${universa_stats_dir}"
     fi
 
-    if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
+    if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
         _train_dir="${data_feats}/${train_set}"
         _valid_dir="${data_feats}/${valid_set}"
-        log "Stage 7: Universa Training: train_set=${_train_dir}, valid_set=${_valid_dir}"
+        log "Stage 8: Universa Training: train_set=${_train_dir}, valid_set=${_valid_dir}"
 
         _opts=
         if [ -n "${train_config}" ]; then
@@ -611,8 +695,8 @@ if ! "${skip_train}"; then
             _type=sound
         fi
 
-        log "Generate '${universa_exp}/run.sh'. You can resume the process from stage 7 using this script"
-        mkdir -p "${universa_exp}"; echo "${run_args} --stage 7 \"\$@\"; exit \$?" > "${universa_exp}/run.sh"; chmod +x "${universa_exp}/run.sh"
+        log "Generate '${universa_exp}/run.sh'. You can resume the process from stage 8 using this script"
+        mkdir -p "${universa_exp}"; echo "${run_args} --stage 8 \"\$@\"; exit \$?" > "${universa_exp}/run.sh"; chmod +x "${universa_exp}/run.sh"
 
         # NOTE(kamo): --fold_length is used only if --batch_type=folded and it's ignored in the other case
 
@@ -662,7 +746,9 @@ if ! "${skip_train}"; then
                 --train_data_path_and_name_and_type "${_train_dir}/metric.scp,metrics,metric" \
                 --valid_data_path_and_name_and_type "${_valid_dir}/${_scp},audio,${_type}" \
                 --valid_data_path_and_name_and_type "${_valid_dir}/metric.scp,metrics,metric" \
-                --metric2id "${data_feats}/${train_set}/metric2id" \
+                --metric2id ${metric2id} \
+                --metric2type "${metric2type}" \
+                --metric_token_info "${metric_token_info}" \
                 --train_shape_file ${universa_stats_dir}/train/audio_shape \
                 --valid_shape_file ${universa_stats_dir}/valid/audio_shape \
                 --output_dir "${universa_exp}" \
@@ -695,8 +781,8 @@ fi
 
 
 if ! "${skip_eval}"; then
-    if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
-        log "Stage 8: Decoding: training_dir=${universa_exp}"
+    if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
+        log "Stage 9: Decoding: training_dir=${universa_exp}"
 
         if ${gpu_inference}; then
             _cmd="${cuda_cmd}"
@@ -706,8 +792,8 @@ if ! "${skip_eval}"; then
             _ngpu=0
         fi
 
-        log "Generate '${universa_exp}/${inference_tag}/run.sh'. You can resume the process from stage 8 using this script"
-        mkdir -p "${universa_exp}/${inference_tag}"; echo "${run_args} --stage 8 \"\$@\"; exit \$?" > "${universa_exp}/${inference_tag}/run.sh"; chmod +x "${universa_exp}/${inference_tag}/run.sh"
+        log "Generate '${universa_exp}/${inference_tag}/run.sh'. You can resume the process from stage 9 using this script"
+        mkdir -p "${universa_exp}/${inference_tag}"; echo "${run_args} --stage 9 \"\$@\"; exit \$?" > "${universa_exp}/${inference_tag}/run.sh"; chmod +x "${universa_exp}/${inference_tag}/run.sh"
 
 
         for dset in ${test_sets}; do
@@ -772,8 +858,8 @@ if ! "${skip_eval}"; then
         done
     fi
 
-    if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
-        log "Stage 9: Scoring"
+    if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ]; then
+        log "Stage 10: Scoring"
 
         if ${gpu_inference}; then
             _cmd="${cuda_cmd}"
@@ -824,8 +910,8 @@ fi
 
 
 packed_model="${universa_exp}/${universa_exp##*/}_${inference_model%.*}.zip"
-if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ] && ! "${skip_upload}"; then
-    log "Stage 10: Packing model: ${packed_model}"
+if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ] && ! "${skip_upload}"; then
+    log "Stage 11: Packing model: ${packed_model}"
     # Pack model
     if [ -e "${universa_exp}/${inference_model}" ]; then
         # Pack model
@@ -841,8 +927,8 @@ if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ] && ! "${skip_upload}"; then
 fi
 
 
-if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ] && ! "${skip_upload}"; then
-    log "Stage 11: Uploading to hugging face: ${hf_repo}"
+if [ ${stage} -le 12 ] && [ ${stop_stage} -ge 12 ] && ! "${skip_upload}"; then
+    log "Stage 12: Uploading to hugging face: ${hf_repo}"
     [ -z "${hf_repo}" ] && \
         log "ERROR: You need to setup the variable hf_repo with the name of the repository located at HuggingFace, follow the following steps described here https://github.com/espnet/espnet/blob/master/CONTRIBUTING.md#132-espnet2-recipes" && \
     exit 1

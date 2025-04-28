@@ -493,7 +493,7 @@ if ! "${skip_data_prep}"; then
                         expand_utt_extra_files="${expand_utt_extra_files} $(basename ${single_file})"
                     done
                 done
-                echo "${expand_utt_extra_files}"
+
                 utils/fix_data_dir.sh --utt_extra_files "${expand_utt_extra_files}" "${data_feats}${_suf}/${dset}"
                 for extra_file in ${expand_utt_extra_files}; do
                     LC_ALL=C sort -u -k1,1 "${data_feats}${_suf}/${dset}/${extra_file}" -o "${data_feats}${_suf}/${dset}/${extra_file}"
@@ -502,7 +502,7 @@ if ! "${skip_data_prep}"; then
                 rm -f ${data_feats}${_suf}/${dset}/{segments,wav.scp.${src_lang},wav.scp,wav.scp.${tgt_lang},reco2file_and_channel,reco2dur}
 
                 _src_opts=
-		_tgt_opts=
+		        _tgt_opts=
                 if [ -e data/"${dset}"/segments.${src_lang} ]; then
                     # "segments" is used for splitting wav files which are written in "wav".scp
                     # into utterances. The file format of segments:
@@ -533,7 +533,7 @@ if ! "${skip_data_prep}"; then
                 # shellcheck disable=SC2086
                 scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
                     --audio-format "${audio_format}" --fs "${fs}" --suffix ".${src_lang}" \
-		    --out_filename "wav.scp.${src_lang}" ${_src_opts} \
+		            --out_filename "wav.scp.${src_lang}" ${_src_opts} \
                     "data/${dset}/wav.scp.${src_lang}" "${data_feats}${_suf}/${dset}"
                 ln -sf "wav.scp.${src_lang}" "${data_feats}${_suf}/${dset}/wav.scp"
 
