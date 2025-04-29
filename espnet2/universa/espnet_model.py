@@ -4,7 +4,7 @@
 """Universa ESPnet model definition."""
 
 from contextlib import contextmanager
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union, List
 
 import numpy as np
 import torch
@@ -150,6 +150,7 @@ class ESPnetUniversaModel(AbsESPnetModel):
         self,
         audio: torch.Tensor,
         audio_lengths: torch.Tensor,
+        metrics_meta_labels: List[int] = None,
         ref_audio: Optional[torch.Tensor] = None,
         ref_audio_lengths: Optional[torch.Tensor] = None,
         ref_text: Optional[torch.Tensor] = None,
@@ -186,6 +187,12 @@ class ESPnetUniversaModel(AbsESPnetModel):
                 batch.update(
                     ref_text=ref_text,
                     ref_text_lengths=ref_text_lengths,
+                )
+            
+            # Update batch with metrics meta labels
+            if metrics_meta_labels is not None:
+                batch.update(
+                    metrics_meta_labels=metrics_meta_labels,
                 )
 
         return self.universa.inference(

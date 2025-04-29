@@ -471,6 +471,13 @@ class UniversaCollateFn(CommonCollateFn):
         self.metric_pad_value = metric_pad_value
         self.metric_token_pad_value = metric_token_pad_value
         self.randomize = randomize
+        if self.randomize:
+            # Shuffle the items to randomize their order
+            logger.info("Randomizing the order of the metrics.")
+        else:
+            logger.info(
+                "Sorting the items by their keys to maintain a consistent order (from metric2id)."
+            )
         if len(numerical_metrics) == 0 and len(categorical_metrics) == 0:
             raise ValueError(
                 "At least one of numerical_metrics or categorical_metrics should be provided."
@@ -503,12 +510,8 @@ class UniversaCollateFn(CommonCollateFn):
 
         if self.randomize:
             # Shuffle the items to randomize their order
-            logger.info("Randomizing the order of the metrics.")
             random.shuffle(items)
         else:
-            logger.info(
-                "Sorting the items by their keys to maintain a consistent order (from metric2id)."
-            )
             # Sort the items by their keys to maintain a consistent order
             items.sort(key=lambda x: x[0])
 

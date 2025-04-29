@@ -13,15 +13,19 @@ import torch.nn.functional as F
 from packaging.version import parse as V
 from typeguard import typechecked
 
+from espnet.nets.pytorch_backend.transformer.embedding import RoPEPositionalEncoding, PositionalEncoding
 from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
 from espnet2.layers.utterance_mvn import UtteranceMVN
-from espnet2.spk.pooling.mean_pooling import MeanPooling
-from espnet2.spk.projector.xvector_projector import XvectorProjector
+from espnet2.asr.decoder.transformer_decoder import TransformerDecoder
 from espnet2.torch_utils.device_funcs import force_gatherable
 from espnet2.universa.abs_universa import AbsUniversa
-from espnet2.universa.base.loss import masked_l1_loss, masked_mse_loss
+from espnet.nets.pytorch_backend.nets_utils import th_accuracy
+from espnet.nets.pytorch_backend.transformer.add_sos_eos import add_sos_eos
 from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
 from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
+from espnet.nets.pytorch_backend.transformer.label_smoothing_loss import (  # noqa: H301
+    LabelSmoothingLoss,
+)
 
 if V(torch.__version__) >= V("1.6.0"):
     from torch.cuda.amp import autocast
@@ -32,7 +36,7 @@ else:
         yield
 
 
-class UniversaBaseFlexibleType(AbsUniversa):
+class ARUniversa(AbsUniversa):
     def __init__(
         self,
         # Model Backbone
@@ -86,17 +90,31 @@ class UniversaBaseFlexibleType(AbsUniversa):
             "n_head": 4,
             "dropout_rate": 0.1,
         },
-        # MultiTask predictors
-        pooling_type: str = "mean",
-        pooling_params: Dict[str, Union[float, int, bool, str]] = {},
-        projector_type: str = "linear",
-        projector_params: Dict[str, Union[float, int, bool, str]] = {},
-        use_mse: bool = False,
-        use_l1: bool = True,
+        # Decoder modules
+        metric_decoder_params: Dict[str, Union[float, int]] = {
+            "num_blocks": 3,
+            "attention_heads": 4,
+            "linear_units": 2048,
+            "dropout_rate": 0.1,
+            "positional_dropout_rate": 0.1,
+            "self_attention_dropout_rate": 0.1,
+            "src_attention_dropout_rate": 0.1,
+            "input_laye": "embed",
+            "use_output_layer": True,
+            "normalize_before": True,
+            "concat_after": False,
+            "layer_drop_rate": 0.0,
+            "qk_norm": False,
+            "use_flash_attn": False,
+        },
+        use_rope_pos: bool = False,
+        # Other parameters
         metric_pad_value: float = -100,
         metric_token_pad_value: int = 0,
-        loss_weights: Optional[Dict[str, float]] = None,
-        # Other parameters
+        lsm_weight: float = 0.0,
+        # Pretrained HF Tokenizer may needs custom sym_sos and sym_eos
+        sym_sos: str = "<sos>",
+        sym_eos: str = "<eos>",
         metric2type: Optional[Dict[str, str]] = None,
         sequential_metrics: bool = False,
         **kwargs,
@@ -119,15 +137,13 @@ class UniversaBaseFlexibleType(AbsUniversa):
             text_encoder_params (Dict[str, Sequence]): Text encoder parameters.
             cross_attention_type (str): Cross attention type.
             cross_attention_params (Dict[str, Sequence]): Cross attention parameters.
-            pooling_type (str): Pooling type.
-            pooling_params (Dict[str, Sequence]): Pooling parameters.
-            projector_type (str): Projector type.
-            projector_params (Dict[str, Sequence]): Projector parameters.
-            use_mse (bool): Whether to use MSE loss.
-            use_l1 (bool): Whether to use L1 loss.
+            metric_decoder_params (Dict[str, Sequence]): Metric decoder parameters.
+            use_rope_pos (bool): Whether to use RoPE position encoding.
             metric_pad_value (float): Metric padding value.
             metric_token_pad_value (int): Metric token padding value.
-            loss_weights (Optional[Dict[str, float]]): Loss weights.
+            lsm_weight (float): Label smoothing weight.
+            sym_sos (str): Start of sequence symbol.
+            sym_eos (str): End of sequence symbol.
             metric2type (Optional[Dict[str, str]]): Metric to type mapping.
             sequential_metrics (bool): Whether to use sequential metrics.
             **kwargs: Additional parameters.
@@ -136,32 +152,35 @@ class UniversaBaseFlexibleType(AbsUniversa):
         super().__init__()
 
         # Precheck parameters
-        if sequential_metrics:
+        if not sequential_metrics:
             raise ValueError(
-                "sequential_metrics is not supported for universa-base, please set it to False"
+                "sequential_metrics is required for ar-universa, please set it to True."
             )
 
         # Initialize parameters
         self.input_size = input_size
-        self.metric_size = len(metric2id)
-        self.metric2id = metric2id
-        self.id2metric = {v: k for k, v in metric2id.items()}
         self.vocab_size = vocab_size
         self.metric_vocab_size = metric_vocab_size
         self.ignore_id = ignore_id
         self.use_ref_audio = use_ref_audio
         self.use_ref_text = use_ref_text
         self.embedding_size = embedding_size
-        pooling_dim = embedding_size
+        decoder_input_dim = embedding_size
         self.use_normalize = use_normalize
-        self.use_mse = use_mse
-        self.use_l1 = use_l1
-        assert (
-            self.use_mse or self.use_l1
-        ), "At least one loss function should be enabled"
         self.metric_pad_value = metric_pad_value
         self.metric_token_pad_value = metric_token_pad_value
 
+        # NOTE(jiatong): the ID is set in tokenizer for <sos> and <eos>
+        # will need to make it more flexible in the future
+        # refer to espnet2/unisersa/metric_tokenizer/metric_tokenizer.py
+        self.sos = 2
+        self.eos = 3
+
+        # Metric information
+        # NOTE(jiatong): not useful for ARUniversa, but keep it for future use
+        self.metric_size = len(metric2id)
+        self.metric2id = metric2id
+        self.id2metric = {v: k for k, v in metric2id.items()}
         if metric2type is None:
             self.id2type = {i: "numerical" for i in self.metric_size}
         else:
@@ -169,14 +188,6 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 i: metric2type.get(self.id2metric[i], "numerical")
                 for i in range(self.metric_size)
             }
-
-        # setup loss weights
-        if loss_weights is None:
-            loss_weights = {}
-            for i in range(self.metric_size):
-                loss_weights[i] = 1.0
-        self.loss_weights = loss_weights
-        assert len(self.loss_weights) == self.metric_size, "mismatch loss weights size"
 
         # Initialize audio encoder
         if audio_encoder_type == "transformer":
@@ -200,7 +211,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 )
             else:
                 raise ValueError(f"Not supported: {audio_encoder_type}")
-            pooling_dim += embedding_size
+            decoder_input_dim += embedding_size
             if self.use_normalize:
                 self.ref_normalize = UtteranceMVN(norm_means=True, norm_vars=True)
 
@@ -218,7 +229,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 )
             else:
                 raise ValueError(f"Not supported: {text_encoder_type}")
-            pooling_dim += embedding_size
+            decoder_input_dim += embedding_size
 
         # Initialize cross attention
         if cross_attention_type == "multihead":
@@ -229,48 +240,20 @@ class UniversaBaseFlexibleType(AbsUniversa):
         else:
             raise ValueError(f"Not supported: {cross_attention_type}")
 
-        self.pooling = torch.nn.ModuleList()
-        self.projector = torch.nn.ModuleList()
-        for i in range(self.metric_size):
-            metric_type = self.id2type[i]
-            if metric_type == "numerical":
-                projector_dim = 1
-            elif metric_type == "categorical":
-                projector_dim = self.vocab_size
-            else:
-                raise ValueError(f"Not supported: {metric_type}")
+        self.decoder = TransformerDecoder(
+            vocab_size=metric_vocab_size,
+            encoder_output_size=decoder_input_dim,
+            pos_enc_class=RoPEPositionalEncoding if use_rope_pos else PositionalEncoding,
+            **metric_decoder_params,
+        )
 
-            # Initialize pooling
-            if pooling_type == "mean":
-                self.pooling.append(
-                    MeanPooling(
-                        input_size=pooling_dim, use_masking=True, **pooling_params
-                    )
-                )
-            else:
-                raise ValueError(f"Not supported: {pooling_type}")
-
-            projector_input = self.pooling[-1].output_size()
-            # Initialize projector
-            if projector_type == "linear":
-                self.projector.append(
-                    torch.nn.Linear(
-                        projector_input,
-                        projector_dim,
-                        **projector_params,
-                    )
-                )
-            elif projector_type == "xvector":
-                self.projector.append(
-                    XvectorProjector(
-                        projector_input,
-                        projector_dim,
-                        **projector_params,
-                    )
-                )
-            else:
-                raise ValueError(f"Not supported: {projector_type}")
-
+        self.ar_criterion = LabelSmoothingLoss(
+            size=metric_vocab_size,
+            padding_idx=metric_token_pad_value,
+            smoothing=lsm_weight,
+            normalize_length=True,
+        )
+        
     @typechecked
     def forward(
         self,
@@ -301,18 +284,24 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 weight (torch.Tensor): Weight tensor.
 
         """
-        batch_size = audio.shape[0]
+        assert "metric_token" in metrics, "metric_token is required in metrics"
+        assert "metric_token_lengths" in metrics, "metric_token_lengths is required in metrics"
+        metric_token, metric_token_lengths = metrics["metric_token"], metrics["metric_token_lengths"]
 
-        # 1. Prepare metrics
-        final_metrics = []
-        for i in range(self.metric_size):
-            if self.id2metric[i] not in metrics:
-                final_metrics.append(
-                    torch.zeros(batch_size, dtype=audio.dtype).to(audio.device)
-                    + self.metric_pad_value
-                )
-            else:
-                final_metrics.append(metrics[self.id2metric[i]].to(audio.device))
+        batch_size = audio.shape[0]
+        assert metric_token_lengths.dim() == 1, "metric_token_lengths should be 1D tensor, but received {}".format(metric_token_lengths.dim())
+        # Check that batch_size is unified
+        assert (
+            batch_size == audio_lengths.shape[0]
+            and batch_size == metric_token.shape[0]
+            and batch_size == metric_token_lengths.shape[0]
+        ), "mismatch batch size with audio {}, metrics {}, metric_token {}".format(
+            audio.shape[0], metrics.shape[0], metric_token.shape[0]
+        )
+
+        # for data-parallel
+        metric_token = metric_token[:, : metric_token_lengths.max()]
+        metric_token[metric_token == -1] = self.metric_token_pad_value
 
         # 2. Encode audio
         audio_enc, audio_enc_lengths = self.encode(
@@ -324,54 +313,19 @@ class UniversaBaseFlexibleType(AbsUniversa):
             ref_text_lengths,
         )
 
-        # 3. Multi-branch pooling and projectors
-        loss = 0.0
+        # 3. Metric Decoder
+        loss_ar_decoder, acc_ar_decoder, value_ar_decoder = self._calc_decoder_loss(
+            audio_enc, audio_enc_lengths, metric_token, metric_token_lengths
+        )
+
         stats = {}
-        audio_enc_mask = make_pad_mask(audio_enc_lengths).to(audio_enc.device)
-        for i in range(self.metric_size):
-            metric_type = self.id2type[i]
+        stats["loss_ar_decoder"] = loss_ar_decoder.detach()
+        stats["acc_ar_decoder"] = acc_ar_decoder
+        stats["value_ar_decoder"] = value_ar_decoder
 
-            pooling_output = self.pooling[i](
-                audio_enc.permute(0, 2, 1), mask=audio_enc_mask
-            )
-            with autocast(False):
-                # skip numeric stability with float16
-                pred_metric = self.projector[i](pooling_output)
-
-            metric_loss = 0.0
-            # NOTE(jiatong): we use > instead of != to handle the case
-            # where the metric_pad_value is not 0
-            if metric_type == "numerical":
-                final_metric_mask = final_metrics[i] > (self.metric_pad_value + 1e-6)
-                if self.use_mse:
-                    metric_mse_loss = masked_mse_loss(
-                        pred_metric.squeee(-1), final_metrics[i], final_metric_mask
-                    )
-                    metric_loss = metric_loss + metric_mse_loss
-                    stats[self.id2metric[i] + "_mse"] = metric_mse_loss.detach()
-                if self.use_l1:
-                    metric_l1_loss = masked_l1_loss(
-                        pred_metric.squeeze(-1), final_metrics[i], final_metric_mask
-                    )
-                    metric_loss = metric_loss + metric_l1_loss
-                    stats[self.id2metric[i] + "_l1"] = metric_l1_loss.detach()
-                metric_loss = metric_loss * self.loss_weights[i]
-            elif metric_type == "categorical":
-                final_metrics[i] = final_metrics[i].long()
-                final_metric_mask = final_metrics[i] != self.metric_token_pad_value
-                if final_metric_mask.sum() == 0:
-                    metric_loss = torch.tensor(0.0).to(audio_enc.device)
-                else:
-                    metric_loss = F.cross_entropy(
-                        pred_metric.view(-1, self.vocab_size),
-                        final_metrics[i].view(-1),
-                        ignore_index=self.metric_token_pad_value,
-                        reduction="mean",
-                    )
-                stats[self.id2metric[i] + "_cross_entropy"] = metric_loss.detach()
-                metric_loss = metric_loss * self.loss_weights[i]
-            stats[self.id2metric[i] + "_overall"] = metric_loss.detach()
-            loss = loss + metric_loss
+        # TODO(jiatong): add nar decoder loss
+        # 4. Loss calculation
+        loss = loss_ar_decoder
 
         stats["loss"] = loss.detach()
 
@@ -446,6 +400,50 @@ class UniversaBaseFlexibleType(AbsUniversa):
         audio_enc = torch.cat(enc_list, dim=-1)
 
         return audio_enc, audio_enc_lengths
+    
+    def _calc_decoder_loss(
+        self,
+        audio_enc: torch.Tensor,
+        audio_enc_lengths: torch.Tensor,
+        metric_token: torch.Tensor,
+        metric_token_lengths: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
+        """Calculate decoder loss.
+
+        Args:
+            audio_enc (torch.Tensor): Encoded audio tensor (B, T, D).
+            audio_enc_lengths (torch.Tensor): Length of encoded audio tensor (B,).
+            metric_token (torch.Tensor): Metric tokens tensor (B, U).
+            metric_token_lengths (torch.Tensor): Length of metric tokens tensor (B,).
+
+        Returns:
+            loss_ar_decoder (torch.Tensor): Loss tensor for AR decoder.
+            acc_ar_decoder (torch.Tensor): Accuracy tensor for AR decoder.
+            value_ar_decoder (torch.Tensor): Value tensor for AR decoder.
+        """
+        
+        ys_in_pad, ys_out_pad = add_sos_eos(metric_token, self.sos, self.eos, self.metric_token_pad_value)
+        ys_in_lens = metric_token_lengths + 1
+
+        # 1. Forward decoder
+        decoder_out, _ = self.decoder(
+            audio_enc, audio_enc_lengths, ys_in_pad, ys_in_lens
+        )
+
+        # 2. Compute attention loss
+        loss_ar_decoder = self.ar_criterion(decoder_out, ys_out_pad)
+        acc_ar_decoder = th_accuracy(
+            decoder_out.view(-1, self.metric_vocab_size),
+            ys_out_pad,
+            ignore_label=self.metric_token_pad_value,
+        )
+        acc_value_ar_decoder = th_accuracy(
+            decoder_out[:, 1::2].reshape(-1, self.metric_vocab_size),
+            ys_out_pad[:, 1::2],
+            ignore_label=self.metric_token_pad_value,
+        )
+
+        return loss_ar_decoder, acc_ar_decoder, acc_value_ar_decoder
 
     @typechecked
     def inference(
@@ -479,19 +477,10 @@ class UniversaBaseFlexibleType(AbsUniversa):
             ref_text_lengths,
         )
 
-        # 2. Multi-branch pooling and projectors
-        audio_enc_mask = make_pad_mask(audio_enc_lengths).to(audio_enc.device)
-        pred_metrics = []
-        for i in range(self.metric_size):
-            pooling_output = self.pooling[i](
-                audio_enc.permute(0, 2, 1), mask=audio_enc_mask
-            )
-            with autocast(False):
-                # skip numeric stability with float16
-                pred_metric = self.projector[i](pooling_output)
-            pred_metrics.append(pred_metric)
-        pred_metrics = self._inference_decoration(pred_metrics)
-        return pred_metrics
+        # 2. Inference
+        # TODO(jiatong): implement beam search inference for AR decoder
+        # NOTE(jiatong): currently only support greedy search
+        return 
 
     @typechecked
     def _inference_decoration(

@@ -23,6 +23,7 @@ from espnet2.train.trainer import Trainer
 from espnet2.universa.abs_universa import AbsUniversa
 from espnet2.universa.base import UniversaBase
 from espnet2.universa.base_flexible_type import UniversaBaseFlexibleType
+from espnet2.universa.ar_universa import ARUniversa
 from espnet2.universa.espnet_model import ESPnetUniversaModel
 from espnet2.utils.get_default_kwargs import get_default_kwargs
 from espnet2.utils.nested_dict_action import NestedDictAction
@@ -43,6 +44,7 @@ universa_choices = ClassChoices(
     classes=dict(
         base=UniversaBase,
         base_flex=UniversaBaseFlexibleType,
+        ar_universa=ARUniversa,
     ),
     type_check=AbsUniversa,
     default="base",
@@ -367,9 +369,10 @@ class UniversaTask(AbsTask):
                     metric_token_info = json.load(f)
             else:
                 raise ValueError("metric_token_info must be str or list")
+            # NOTE(jiatong): related to espnet2.universa.metric_tokenizer.metric_tokenizer
             metric_vocab_size = (
-                len(metric_token_info["VOCAB"]) + 2
-            )  # +2 for <pad> and <unk>
+                len(metric_token_info["VOCAB"]) + 4
+            )  # +2 for <pad> and <unk> and +2 for <sos> and <eos>
             logging.info("Metric vocabulary size: " + str(metric_vocab_size))
         else:
             metric_vocab_size = None

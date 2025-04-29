@@ -34,10 +34,12 @@ class MetricTokenizer(AbsMetricTokenizer):
         self.tokenize_metric = tokenize_metric
 
         # Build inverse mapping for faster lookups
-        self.offset = 2 # Offset for the vocab indices
+        self.offset = 4 # Offset for the vocab indices
         self.vocab_indices = {token: idx + self.offset for idx, token in enumerate(self.vocab)}
         self.vocab_indices["<pad>"] = 0  # Add padding token index
         self.vocab_indices["<unk>"] = 1  # Add unknown token index
+        self.vocab_indices["<eos>"] = 2  # Add end-of-sequence token index
+        self.vocab_indices["<sos>"] = 3  # Add start-of-sequence token index
 
 
         # Extract metric types and their thresholds/categories
