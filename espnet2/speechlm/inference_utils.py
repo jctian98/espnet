@@ -249,11 +249,11 @@ class ChatOrientedWriter:
         )
         self.buffer = []
     
+    @torch.no_grad()
     def write(self, name, all_segments):
         dialogue = []
 
         for idx, segments in enumerate(all_segments):
-            # print('start to save segment: ', idx, segments, flush=True)
             
             # name
             segment_name = f"{name}_segment{idx}"
@@ -283,14 +283,19 @@ class ChatOrientedWriter:
             modality = segment[1][0]
             modality = self.token_list[modality]
             modality = modality.removeprefix("<").removesuffix("_start/end>")
+            modality = "codec_ssl" if modality == "spk" else modality
+
+            segment = segment[2:] # exclude role and modality token
+            segment = segment[segment[:, 0] != 0] # exclude padding
 
             # detokenize
             if modality == "codec_ssl":
                 segment = segment[:, 1:] - self.token_bias["codec"][0]
                 segment = segment.view(-1).contiguous()
+                tokenizer = self.inference_config[modality].tokenizer
                 detokenized = tokenizer.detokenize(
                     segment.clone(),
-                    n_codebook=config.nq - 1,
+                    n_codebook=self.inference_config[modality].nq - 1,
                 )
             
             elif modality == "text_bpe":
@@ -302,8 +307,13 @@ class ChatOrientedWriter:
                 ).strip()
                 segment = segment - self.token_bias['text_bpe'][0]
             
+            else:
+                raise NotImplementedError(
+                    f"modality detokenization on {modality} is not supported yet."
+                )
+            
             # write
-            self.writer[segment_name] = segment.int().cpu().numpy()
+            self.writer[segment_name] = segment.int().flatten().cpu().numpy()
 
             if modality == "codec_ssl":
                 audio_path = str(self.output_dir / f"{segment_name}.wav")

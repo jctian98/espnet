@@ -434,7 +434,7 @@ class SpeechLMTask(AbsTask):
             modality_weights=args.modality_weights,
             image_interval_split=getattr(args, "image_token_per_patch", 1),
             lm_head=corelm.lm_head,
-            loss_type=args.loss_type,
+            loss_type=getattr(args, "loss_type", "mean"),
         )
         kwargs.update(criterion=criterion)
 

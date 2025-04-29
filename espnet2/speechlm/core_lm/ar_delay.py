@@ -36,7 +36,6 @@ class ARDelayLM(ARParallelLM):
             dec_seq (LongTensor): Batch of decoder sequences (B, T, nq).
             loss_mask (LongTensor): Lengths of condition part in dec_seq (B, T, nq).
         """
-
         dec_seq_delay, loss_mask = self.delay_interleave(
             dec_seq=dec_seq, loss_mask=loss_mask
         )
@@ -67,6 +66,10 @@ class ARDelayLM(ARParallelLM):
             if ret_loss_mask is not None:
                 ret_loss_mask[:, n : n + T, n] = loss_mask[:, :, n]
 
+        retval = retval[:, :-(self.nq - 1)]
+        if ret_loss_mask is not None:
+            ret_loss_mask = ret_loss_mask[:, :-(self.nq - 1)]
+
         return retval, ret_loss_mask
 
     def inverse_delay_interleave(
@@ -91,10 +94,8 @@ class ARDelayLM(ARParallelLM):
     ):
         # (1) Prefill
         prefill_delay, _ = self.delay_interleave(prefill)
-        prefill_delay = prefill_delay[:, :-(config.nq - 1)]
         if config.search_algo == "teacher_force":
             reference_delay, _ = self.delay_interleave(reference)
-            reference_delay = reference_delay[:, :-(config.nq - 1)]
         else:
             reference_delay = None
 
@@ -121,6 +122,7 @@ class ARDelayLM(ARParallelLM):
         generated = {"token": [], "score": []}
         finish_idx = torch.ones(config.nbest) * -1
         finish_idx = finish_idx.long().to(config.device)
+        nq_axis = torch.arange(config.nq).long().to(config.device)
         prev_tok = prefill_delay[:, -1:]
         
         for step in range(0, maxlen):
@@ -136,22 +138,16 @@ class ARDelayLM(ARParallelLM):
                 allow_eos=step >= minlen,
             )
 
-            # NOTE(Jinchuan): Due to delay interleave, the first predictions
-            # are replaced by PAD. Especially, when step == 1, the prediction
-            # is the modality identifier.
+            # NOTE(Jinchuan): Force some tokens to be PAD (0) due to delay interleave
             if step <= self.nq:
                 gen_tok[:, :, step + 1:] = 0
             
-            # NOTE(Jinchuan): once finished, only PAD is allowed.
-            gen_tok = torch.where(finish_idx < 0, gen_tok, 0)
-
-            if config.search_algo == "teacher_force":
-                prev_tok = reference_delay[:, step: step + 1]
-            else:
-                prev_tok = gen_tok
-            
-            generated["token"].append(gen_tok)
-            generated["score"].append(gen_score)
+            if torch.any(finish_idx != -1):
+                finish_step = torch.where(finish_idx > 0, step - finish_idx + 1, 0)
+                gen_tok = torch.where(
+                    finish_step.view(-1, 1, 1) > nq_axis.view(1, 1, -1),
+                    0, gen_tok
+                )
 
             # (3.3) detect ended hypotheses
             finish_idx = torch.where(
@@ -165,7 +161,16 @@ class ARDelayLM(ARParallelLM):
                     f"Some examples cannot finish in {maxlen} steps: {finish_idx} "
                     f"Force it to finish. "
                 )
+                gen_tok[:, 0, 0] = torch.where(finish_idx == -1, config.eos, gen_tok[:, 0, 0])
                 finish_idx = torch.where(finish_idx == -1, step, finish_idx)
+
+            if config.search_algo == "teacher_force":
+                prev_tok = reference_delay[:, step: step + 1]
+            else:
+                prev_tok = gen_tok
+            
+            generated["token"].append(gen_tok)
+            generated["score"].append(gen_score)
 
             # more "self.nq - 1" steps after all finish_idx becomes non-negative
             if finish_idx.min() >= 0 and step - finish_idx.max() >= self.nq - 1:

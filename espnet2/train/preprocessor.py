@@ -2597,7 +2597,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
 
             # NOTE(Jinchuan): specifically design for delay interleave: after the
             # interleave, there is still no overlap between consecutive segments.
-            if idx != len(data_tuples) - 1  and self.inter_segment_pad > 0:
+            if self.inter_segment_pad > 0:
                 pad = np.tile(self.special_token("<pad>"), self.inter_segment_pad)
                 value = np.concatenate([value, pad], axis=0)
 
