@@ -1,6 +1,6 @@
 import json
 from abc import ABC, abstractmethod
-from typing import Dict, Iterable, List, Tuple, Union
+from typing import Dict, Iterable, List, Tuple, Union, Optional
 
 from typeguard import typechecked
 
@@ -58,8 +58,8 @@ class MetricTokenizer(AbsMetricTokenizer):
         Returns:
             Tuple of (meta_label_index, value_index) in the vocabulary
         """
-        meta_label_token = f"{metric_name}_meta_label"
-        value_token = f"{metric_name}_{value_index}"
+        meta_label_token = f"{metric_name}@meta_label"
+        value_token = f"{metric_name}@{value_index}"
 
         meta_label_index = self.vocab_indices.get(meta_label_token)
         value_index = self.vocab_indices.get(value_token)
@@ -139,7 +139,7 @@ class MetricTokenizer(AbsMetricTokenizer):
         return token_indices
 
     @typechecked
-    def token2metric(
+    def tokenseq2metric(
         self, tokens: Iterable[int], return_dict: bool = False
     ) -> Union[str, Dict[str, Union[float, int, str, Tuple[float, float]]]]:
         """
@@ -167,13 +167,13 @@ class MetricTokenizer(AbsMetricTokenizer):
             value_token = self.vocab[value_idx]
 
             assert meta_label.endswith(
-                "_meta_label"
+                "@meta_label"
             ), f"Invalid meta_label: {meta_label}"
             # Extract metric name from meta_label
-            metric_name = meta_label.split("_meta_label")[0]
+            metric_name = meta_label.split("@meta_label")[0]
 
             # Extract value index from value token
-            value_index = int(value_token.split("_")[-1])
+            value_index = int(value_token.split("@")[-1])
 
             if metric_name not in self.tokenizer_config.keys():
                 raise ValueError(f"Unknown metric in decoding: {metric_name}")
@@ -198,3 +198,34 @@ class MetricTokenizer(AbsMetricTokenizer):
         # Format the result as a string
         formatted_result = ", ".join([f"{k}: {v}" for k, v in result.items()])
         return formatted_result
+    
+    @typechecked
+    def token2metric(self, token: int, metric: Optional[str] = None) -> str:
+        """
+        Convert a single token index back to its metric representation.
+
+        Args:
+            token: Token index
+            metric: Optional metric name for non-meta_label tokens
+
+        Returns:
+            String representation of the metric
+        """
+        if token not in self.vocab_indices.values():
+            raise ValueError(f"Invalid token index: {token}")
+
+        token_result = self.vocab[token]
+        if token_result.endswith("@meta_label"):
+            metric_name = token_result.split("@meta_label")[0]
+            return metric_name
+        else:
+            token_value = int(token_result.split("@")[-1])
+            if metric is None:
+                raise ValueError("Metric name must be provided for non-meta_label tokens")
+            if metric not in self.tokenizer_config.keys():
+                raise ValueError(f"Unknown metric: {metric}")
+            assert token_value >= 0 and token_value < len(self.tokenizer_config[metric]), (
+                f"Invalid token value: {token_value} for metric {metric}"
+            )
+            return self.tokenizer_config[metric][token_value]
+

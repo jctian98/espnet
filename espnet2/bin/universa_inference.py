@@ -50,6 +50,7 @@ class UniversaInference:
         self.universa = model.universa
         self.frontend = model.frontend
         self.preprocess_fn = UniversaTask.build_preprocess_fn(train_args, False)
+        self.metric_tokenizer = self.preprocess_fn.metric_tokenizer
         self.seed = seed
         self.always_fix_seed = always_fix_seed
         logging.info(f"Frontend: {model.frontend}")
@@ -98,6 +99,20 @@ class UniversaInference:
             set_all_random_seed(self.seed)
 
         output_dict = self.model.inference(**batch, **kwargs)
+
+        # Further process the output with tokenizer if needed
+        if output_dict["sequential_metrics"]:
+            pass
+        elif output_dict["use_tokenizer_metrics"]:
+            for k, v in output_dict.items():
+                if k == "use_tokenizer_metrics" or k == "sequential_metrics":
+                    continue
+                if k in output_dict["use_tokenizer_metrics"]:
+                    v = self.metric_tokenizer.token2metric(
+                        v, k
+                    )
+                    output_dict[k] = v
+            
         return output_dict
 
     @property

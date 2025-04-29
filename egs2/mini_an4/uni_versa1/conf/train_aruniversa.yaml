@@ -79,6 +79,7 @@ sequential_metric: true # must set to true for ARUniversa-related models
 
 tokenize_numerical_metric: true # must set to true for ARUniversa-related models
 
+randomize_sequential_metric: true # whether to randomize sequential metrics during training
 
 ########################
 # Training parameters  #

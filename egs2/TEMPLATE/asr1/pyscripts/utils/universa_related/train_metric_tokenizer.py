@@ -235,7 +235,7 @@ def create_tokenizer(
     )
     
     for metric, _ in sorted_metrics:
-        vocab.append("{}_meta_label".format( metric))
+        vocab.append("{}@meta_label".format( metric))
         values = metric_values[metric]
         metric_type = metric2type[metric]
         
@@ -258,7 +258,7 @@ def create_tokenizer(
 
             # Create category tokens for VOCAB field
             for idx, _ in enumerate(unique_values):
-                vocab.append(f"{metric}_{idx}")
+                vocab.append(f"{metric}@{idx}")
 
             print(f"Metric '{metric}' (categorical): found {len(unique_values)} unique categories")
             
@@ -296,7 +296,7 @@ def create_tokenizer(
 
                 # Create interval tokens for VOCAB field (one less than intervals)
                 for idx in range(len(intervals) + 1):
-                    vocab.append(f"{metric}_{idx}")
+                    vocab.append(f"{metric}@{idx}")
 
                 print(f"Metric '{metric}' (numerical): created {len(intervals)-1} intervals "
                       f"using {token_size} tokens with '{percentile_distribution}' distribution")

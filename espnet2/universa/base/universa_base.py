@@ -561,4 +561,6 @@ class UniversaBase(AbsUniversa):
                 self.id2metric[i]: pred_metrics[:, i].detach().cpu().numpy()
                 for i in range(self.metric_size)
             }
+        results["use_tokenizer_metrics"] = []
+        results["sequential_metrics"] = False
         return results

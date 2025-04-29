@@ -231,12 +231,14 @@ class UniversaBaseFlexibleType(AbsUniversa):
 
         self.pooling = torch.nn.ModuleList()
         self.projector = torch.nn.ModuleList()
+        self.category_metrics = []
         for i in range(self.metric_size):
             metric_type = self.id2type[i]
             if metric_type == "numerical":
                 projector_dim = 1
             elif metric_type == "categorical":
                 projector_dim = self.vocab_size
+                self.category_metrics.append(self.id2metric[i])
             else:
                 raise ValueError(f"Not supported: {metric_type}")
 
@@ -511,4 +513,6 @@ class UniversaBaseFlexibleType(AbsUniversa):
             self.id2metric[i]: pred_metrics[i].detach().cpu().numpy()
             for i in range(self.metric_size)
         }
+        results["use_tokenizer_metrics"] = self.category_metrics
+        results["sequential_metrics"] = False
         return results
