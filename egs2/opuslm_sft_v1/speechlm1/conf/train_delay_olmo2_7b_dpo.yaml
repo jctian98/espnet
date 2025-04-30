@@ -1,5 +1,7 @@
 # Model
 model: dpo
+model_conf:
+    beta: 0.1
 
 transformer: huggingface
 transformer_conf:
@@ -24,11 +26,11 @@ loss_region: target
 
 # General Dataloader configuration
 batch_type: numel
-batch_bins: 1
-max_epoch: 2
+batch_bins: 16000
+max_epoch: 3
 num_workers: 6
 drop_last_iter: true
-log_interval: 1
+log_interval: 10
 
 # Data preprocessing
 codec_token_per_frame: 9
@@ -45,7 +47,7 @@ asr_time_mask_config:
 
 # deepspeed
 use_deepspeed: true
-deepspeed_config: conf/deepspeed_ddp_zero2_olmo.json
+deepspeed_config: conf/deepspeed_ddp_zero2_olmo_dpo.json
 deepspeed_step_sync: false
 
 # Pre-Trained Model

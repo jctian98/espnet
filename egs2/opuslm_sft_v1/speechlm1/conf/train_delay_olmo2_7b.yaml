@@ -19,10 +19,11 @@ modality_weights: {
     "special_token": 10.0,
 }
 loss_region: target
+loss_type: sum
 
 # General Dataloader configuration
 batch_type: numel
-batch_bins: 16000
+batch_bins: 13000
 max_epoch: 2
 num_workers: 6
 drop_last_iter: true
@@ -46,7 +47,7 @@ use_deepspeed: true
 deepspeed_config: conf/deepspeed_ddp_zero2_olmo.json
 deepspeed_step_sync: false
 
-# Pre-Trained Model
+# Pre-Trained Model, add your pre-trained model here
 # init_param: 
 #   - exp/opuslm_7b_baseline/205epoch_revised.pth
 

@@ -1,8 +1,7 @@
 nproc: 1
 dtype: bfloat16
-# dtype: float32
 
-inference_last_segment: true
+inference_last_segment: false
 
 codec_ssl:
     search_algo: topk_sampling

@@ -587,53 +587,50 @@ We share the pre-trained SpeechLM of 1.7B presented in [ESPnet-SpeechLM system p
   * HuggingFace repo: https://huggingface.co/JinchuanTian/OpusLM_v0_1.7B_NAACL_Demo
   * download the model and its dependency by `cd espnet/egs2/<dataname>/speechlm1; huggingface-cli download --repo-type model --local-dir . JinchuanTian/OpusLM_v0_1.7B_NAACL_Demo`
 
+We share the pre-trained SpeechlM of 7B. The model will be openly avaialbel after May 19th. If you want to access it earlier, please contact us.
+  * HuggingFace Repo: https://huggingface.co/JinchuanTian/opuslm_v1_7b_anneal_205
+  * Download the model and its dependency by `cd espnet/egs2/<dataname>/speechlm1; huggingface-cli download --repo-type model --local-dir . JinchuanTian/opuslm_v1_7b_anneal_205`
+
 
 #### Tokenization
 Please setup the tokenizer options for `speechlm.sh` as below:
   * For codec: `--codec_choice ESPnet --codec_hf_model_tag ftshijt/espnet_codec_dac_large_v1.4_360epoch`
   * For SSL: `--ssl_choice espnet_hubert --ssl_nlayer 18 --ssl_checkpoint_path exp/kmeans/38epoch.pth --ssl_kmeans_path exp/kmeans/xeus_18_5000clusters/km_5000.mdl --ssl_batch_bins 5000000`
-  * For text BPE: `--subword_choice huggingface --subword_model HuggingFaceTB/SmolLM-1.7B`
+  * For text BPE: `--subword_choice huggingface --subword_model allenai/OLMo-2-1124-7B`
 
 #### Config files:
-  * The training config is `conf/train_delay_smollm_1.7b_nods.yaml`; This config is for pre-training, feel free to revise settings (e.g., batch size, learning rate, etc) for fine-tuning
-  * The ASR inference config is `conf/decode_asr.yaml`; the TTS inference config is `conf/decode_tts_espnet.yaml`. We put multiple processes on each GPU. So revise `nproc` according to your GPU memory
-
-#### Important Notice
-Due to codebase update, please do a simple hacking for the inference. This issue is unique for the current model, and has been fixed in the later models.
-  * For [this line](https://github.com/jctian98/espnet/blob/8dc3e7b76d2c24451aa10a36930efe21324e5f34/espnet2/speechlm/core_lm/ar_delay.py#L170), change the code to 34 if TTS; to 35 if ASR. 
+  * Generally, you can use `conf/decode_general.yaml` for all inference, including ASR, TTS, dialogues. You can tune the `nproc` parameter > 1 to enable multiprocessing on a single GPU.
 
 #### Inference Demo:
   * We also share the pre-tokenized LibriSpeech Test-Clean subset for ASR and TTS inference. Run as follow:
   ```bash
-  # ASR Inference
+  # ASR Inference. Change task to codec_ssl_tts for TTS inference
   bash run.sh \
     --skip_data_prep false \
     --stage 9 --stop_stage 10 \
-    --tag naacl_demo_1.7B \
-    --expdir exp \
-    --inference_model 34epoch.pth \
-    --inference_config conf/decode_asr.yaml  \
+    --inference_nj 4 \
+    --tag opuslm_v1_7b_anneal_205 \
+    --inference_model 205epoch.pth \
+    --inference_config conf/decode_general.yaml \
     --task codec_ssl_asr \
     --nbest 1 \
     --data_name librispeech \
-    --test_sets "test_clean" \
-    --nj 4 --inference_nj 4
+    --test_sets test_clean
   ```
 
   ```bash
-  # TTS Inference
+  # Audio Dialogue inference
   bash run.sh \
-    --skip_data_prep false \
-    --stage 9 --stop_stage 10 \
-    --tag naacl_demo_1.7B \
-    --expdir exp \
-    --inference_model 34epoch.pth \
-    --inference_config conf/decode_tts_espnet.yaml  \
-    --task codec_ssl_tts \
+    --skip_data_prep true \
+    --stage 9 --stop_stage 9 \
+    --inference_nj 1 \
+    --expdir exp_olmo2_sft \
+    --tag opus_sft_1e-5_sumloss_speech \
+    --inference_model 2epoch.pth \
+    --inference_config conf/decode_general.yaml \
+    --task audio_dialogue \
     --nbest 1 \
-    --data_name librispeech \
-    --test_sets "test_clean" \
-    --nj 4 --inference_nj 4
+    --test_jsons dump/raw_audio_dialogue_sft_acl/HuggingFaceTB-smoltalk_everyday-conversations_test/data.json
   ```
 
 ### Step-by-Step Guidance of supporting a new task

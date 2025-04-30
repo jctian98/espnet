@@ -18,11 +18,12 @@ log() {
 }
 SECONDS=0
 
-stage=3
-stop_stage=3
+stage=4
+stop_stage=4
 
 TULU3=data/local/tulu3
 OpenAudioBench=data/local/openaudiobench
+OLMO2_SFT=/work/hdd/bbjs/jtian1/tools/olmo2_dpo
 OLMO2_DPO=data/local/olmo2_dpo
 
 . utils/parse_options.sh
@@ -76,6 +77,22 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
       --output_dir dump/raw_text_dialogue_olmo2_dpo 
     for dset in train valid; do
         dir=dump/raw_text_dialogue_olmo2_dpo/${dset}
+        cp ${dir}/data/dialogue.1 ${dir}/dialogue
+        python3 pyscripts/utils/make_speechlm_json.py \
+          --task text_dialogue \
+          --output_json ${dir}/data.json \
+          --file_modality_type ${dir}/dialogue,dialogue,dialogue_json
+    done
+fi
+
+if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
+    log "Convert OLMO2_SFT dataset to ESPnet-SpeechLM data format"
+    python3 local/data_prep_olmo2_7b_sft.py \
+      --download_dir ${OLMO2_SFT}/data \
+      --output_dir dump/raw_text_dialogue_olmo2_sft
+
+    for dset in train valid; do
+        dir=dump/raw_text_dialogue_olmo2_sft/${dset}
         cp ${dir}/data/dialogue.1 ${dir}/dialogue
         python3 pyscripts/utils/make_speechlm_json.py \
           --task text_dialogue \
