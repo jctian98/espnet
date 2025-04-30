@@ -583,10 +583,6 @@ When training with massive data, storing the whole dataset in each GPU process i
 
 ## Resources
 ### Pre-Trained Models:
-We share the pre-trained SpeechLM of 1.7B presented in [ESPnet-SpeechLM system paper](https://arxiv.org/abs/2502.15218). We will release more advanced models of 1.7B and 7B in late May.
-  * HuggingFace repo: https://huggingface.co/JinchuanTian/OpusLM_v0_1.7B_NAACL_Demo
-  * download the model and its dependency by `cd espnet/egs2/<dataname>/speechlm1; huggingface-cli download --repo-type model --local-dir . JinchuanTian/OpusLM_v0_1.7B_NAACL_Demo`
-
 We share the pre-trained SpeechlM of 7B. The model will be openly avaialbel after May 19th. If you want to access it earlier, please contact us.
   * HuggingFace Repo: https://huggingface.co/JinchuanTian/opuslm_v1_7b_anneal_205
   * Download the model and its dependency by `cd espnet/egs2/<dataname>/speechlm1; huggingface-cli download --repo-type model --local-dir . JinchuanTian/opuslm_v1_7b_anneal_205`
