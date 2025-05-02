@@ -27,6 +27,8 @@ if __name__ == "__main__":
         row_num = 0
         for key, metric in metric_reader.items():
             for k, v in metric.items():
+                if k  == "key":
+                    continue
                 if k in metric2type.keys():
                     continue
                 if type(v) == str:
