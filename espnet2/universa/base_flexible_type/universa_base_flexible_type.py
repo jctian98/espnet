@@ -234,6 +234,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
         self.pooling = torch.nn.ModuleList()
         self.projector = torch.nn.ModuleList()
         self.category_metrics = []
+        self.category_metrics_dim = {} # {metric_id: metric_dim}
         for i in range(self.metric_size):
             metric_type = self.id2type[i]
             if metric_type == "numerical":
@@ -241,6 +242,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
             elif metric_type == "categorical":
                 projector_dim = self.metric_token_info["offset"][self.id2metric[i]][-1] + 1
                 self.category_metrics.append(self.id2metric[i])
+                self.category_metrics_dim[i] = projector_dim
             else:
                 raise ValueError(f"Not supported: {metric_type}")
 
@@ -366,8 +368,9 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 if final_metric_mask.sum() == 0:
                     metric_loss = torch.tensor(0.0).to(audio_enc.device)
                 else:
+                    metric_dim = self.category_metrics_dim[i]
                     metric_loss = F.cross_entropy(
-                        pred_metric.view(-1, self.vocab_size),
+                        pred_metric.view(-1, metric_dim),
                         final_metrics[i].view(-1),
                         ignore_index=self.metric_token_pad_value,
                         reduction="mean",

@@ -69,8 +69,9 @@ class MetricTokenizer(AbsMetricTokenizer):
         if meta_label_index is None or value_index is None:
             raise ValueError(f"Invalid token: {meta_label_token} or {value_token}")
 
-        if return_offset:
-            value_index = value_index - self.metric_offset[metric_name]
+        if reduce_offset:
+            metric_offset, _ = self.metric_offset[metric_name]
+            value_index = value_index - metric_offset - self.overall_offset
 
         return meta_label_index, value_index
 
@@ -121,14 +122,14 @@ class MetricTokenizer(AbsMetricTokenizer):
         token_indices = {}
 
         for metric_name, value in metrics.items():
-            if metric_name not in self.metrics:
-                raise ValueError(f"Unknown metric: {metric_name}")
-
             if (
                 self.tokenize_metric is not None
                 and metric_name not in self.tokenize_metric
             ):
                 continue
+
+            if metric_name not in self.metrics:
+                raise ValueError(f"Unknown metric: {metric_name}")
 
             if type(value) == tuple:
                 # already tokenized
@@ -248,4 +249,4 @@ class MetricTokenizer(AbsMetricTokenizer):
             Token with added offset
         """
         offset = self.metric_offset[metric_name][0]
-        return src_token + offset
+        return src_token + offset + self.overall_offset
