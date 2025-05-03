@@ -242,7 +242,10 @@ bpemodel="${bpeprefix}".model
 bpetoken_list="${bpedir}"/tokens.txt
 chartoken_list="${token_listdir}"/char/tokens.txt
 
-metric_token_dir="${token_listdir}"/metric_${metric_token_size}_${metric_token_method}
+metric_token_dir="${token_listdir}"/metric_${metric_token_size}_${metric_token_method}_${train_set}
+if [ ${tokenize_metric} = true ]; then
+    metric_token_dir="${metric_token_dir}_w-numerical"
+fi
 metric_token_info="${metric_token_dir}"/tokens.json
 
 if [ "${token_type}" = bpe ]; then
@@ -346,6 +349,11 @@ if ! "${skip_data_prep}"; then
                     --out_filename "ref_wav.scp" ${_ref_opts} \
                     "data/${dset}/ref_wav.scp" "${data_feats}${_suf}/${dset}"
 
+                if [ ! -f "${data_feats}${_suf}/${dset}/ref_wav.scp" ]; then
+                    # NOTE(jiatong): create an empty ref_wav.scp for non reference case
+                    touch ${data_feats}${_suf}/${dset}
+                fi
+
                 # NOTE(jiatong): align the reference audio with the formulated wav
                 python pyscripts/utils/align_wav_keys.py \
                     "${data_feats}${_suf}/${dset}/wav.scp" \
@@ -380,10 +388,9 @@ if ! "${skip_data_prep}"; then
                 "${data_feats}/org/${train_set}"/metric2type
             
             metric2type="${data_feats}/org/${train_set}"/metric2type
-            cp -r "${data_feats}/org/${train_set}"/metric2type "${data_feats}/${train_set}"
         else
             log "metric2type is already specified. Skip this stage."
-            cp -r ${metric2type} "${data_feats}/${train_set}"
+            cp -r ${metric2type} "${data_feats}/org/${train_set}"
         fi
 
         if [ -z "${metric2id}" ] ; then
@@ -392,11 +399,9 @@ if ! "${skip_data_prep}"; then
                     "${data_feats}/org/${train_set}"/metric.scp \
                     "${data_feats}/org/${train_set}"/metric2id \
                     --metric2type ${metric2type}
-                
-                cp -r "${data_feats}/org/${train_set}"/metric2id "${data_feats}/${train_set}"
         else
             log "metric2id is already specified. Skip this stage."
-            cp -r ${metric2id} "${data_feats}/${train_set}"
+            cp -r ${metric2id} "${data_feats}/org/${train_set}"
         fi
 
     fi
@@ -457,6 +462,7 @@ if ! "${skip_data_prep}"; then
 
         # NOTE(jiatong): sync metric2id for train set
         cp "${data_feats}/org/${train_set}/metric2id" "${data_feats}/${train_set}/metric2id"
+        cp "${data_feats}/org/${train_set}/metric2type" "${data_feats}/${train_set}/metric2type"
     fi
 
     if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ] && [ ${use_ref_text} = true ] ; then
