@@ -5,7 +5,7 @@
 
 import logging
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -59,7 +59,13 @@ class UniversaBaseFlexibleType(AbsUniversa):
             "qk_norm": False,
             "use_flash_attn": False,
         },
+        # Metric related
         metric_vocab_size: Optional[int] = None,
+        metric_token_info: Optional[Dict[str, Any]] = None,
+        metric2type: Optional[Dict[str, str]] = None,
+        metric_pad_value: float = -100,
+        metric_token_pad_value: int = 0,
+        sequential_metrics: bool = False,
         # Text processor
         vocab_size: Optional[int] = None,
         ignore_id: int = -1,
@@ -93,12 +99,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
         projector_params: Dict[str, Union[float, int, bool, str]] = {},
         use_mse: bool = False,
         use_l1: bool = True,
-        metric_pad_value: float = -100,
-        metric_token_pad_value: int = 0,
         loss_weights: Optional[Dict[str, float]] = None,
-        # Other parameters
-        metric2type: Optional[Dict[str, str]] = None,
-        sequential_metrics: bool = False,
         **kwargs,
     ):
         """Initialize UniversaBase module.
@@ -161,6 +162,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
         ), "At least one loss function should be enabled"
         self.metric_pad_value = metric_pad_value
         self.metric_token_pad_value = metric_token_pad_value
+        self.metric_token_info = metric_token_info
 
         if metric2type is None:
             self.id2type = {i: "numerical" for i in self.metric_size}
@@ -237,7 +239,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
             if metric_type == "numerical":
                 projector_dim = 1
             elif metric_type == "categorical":
-                projector_dim = self.vocab_size
+                projector_dim = self.metric_token_info["offset"][self.id2metric[i]][-1] + 1
                 self.category_metrics.append(self.id2metric[i])
             else:
                 raise ValueError(f"Not supported: {metric_type}")

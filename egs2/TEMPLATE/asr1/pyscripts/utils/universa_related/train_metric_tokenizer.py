@@ -25,7 +25,7 @@ def parse_args():
         "--tokenizer_info", required=True, type=str, help="Path to output token list JSON file"
     )
     parser.add_argument(
-        "--token_size", required=True, type=int, 
+        "--token_size", type=int, default=100, 
         help="Default number of tokens/intervals for numerical metrics"
     )
     parser.add_argument(
@@ -33,7 +33,7 @@ def parse_args():
         help="Optional path to file mapping metrics to their individual token sizes"
     )
     parser.add_argument(
-        "--token_method", required=True, type=str, choices=["percentile"],
+        "--token_method", type=str, choices=["percentile"], default="percentile",
         help="Method for tokenization (currently only 'percentile' is supported)"
     )
     parser.add_argument(
@@ -223,6 +223,7 @@ def create_tokenizer(
     """Create a tokenizer based on collected metric values."""
     tokenizer = {}
     vocab = []
+    offset = {}
     
     # Initialize metric2percentile_distribution if None
     if metric2percentile_distribution is None:
@@ -234,35 +235,42 @@ def create_tokenizer(
         key=lambda x: x[1]
     )
     
+    current_offset = 0
     for metric, _ in sorted_metrics:
         vocab.append("{}@meta_label".format( metric))
         values = metric_values[metric]
         metric_type = metric2type[metric]
-        
-        # Get token size for this metric (use default if not specified)
-        token_size = metric2token_size.get(metric, default_token_size)
-
-        assert token_size > 1, (
-            f"Token size must be greater than 1 for metric '{metric}', got {token_size}"
-        )
-        
-        # Get percentile distribution for this metric (use default if not specified)
-        percentile_distribution = metric2percentile_distribution.get(
-            metric, default_percentile_distribution
-        )
         
         if metric_type == "categorical":
             # For categorical metrics, simply get unique values
             unique_values = sorted(set(values))
             tokenizer[metric] = unique_values
 
-            # Create category tokens for VOCAB field
+            # Create category tokens for VOCAB field, reserve '0' for padding
+            vocab.append(f"{metric}@0")
             for idx, _ in enumerate(unique_values):
-                vocab.append(f"{metric}@{idx}")
+                vocab.append(f"{metric}@{idx+1}")
+
+            # Setup offset
+            offset[metric] = current_offset, len(unique_values) + 1
+            current_offset += len(unique_values) + 1
 
             print(f"Metric '{metric}' (categorical): found {len(unique_values)} unique categories")
             
         elif metric_type == "numerical" and not categorical_only:
+
+            # Get token size for this metric (use default if not specified)
+            token_size = metric2token_size.get(metric, default_token_size)
+
+            assert token_size > 1, (
+                f"Token size must be greater than 1 for metric '{metric}', got {token_size}"
+            )
+
+            # Get percentile distribution for this metric (use default if not specified)
+            percentile_distribution = metric2percentile_distribution.get(
+                metric, default_percentile_distribution
+            )
+
             # Convert to numeric values, ignoring non-numeric
             numeric_values = []
             for v in values:
@@ -295,13 +303,17 @@ def create_tokenizer(
                 tokenizer[metric] = intervals.tolist()
 
                 # Create interval tokens for VOCAB field (one less than intervals)
+                vocab.append(f"{metric}@0")
                 for idx in range(len(intervals) + 1):
-                    vocab.append(f"{metric}@{idx}")
+                    vocab.append(f"{metric}@{idx + 1}")
 
                 print(f"Metric '{metric}' (numerical): created {len(intervals)-1} intervals "
                       f"using {token_size} tokens with '{percentile_distribution}' distribution")
 
-    return tokenizer, vocab
+                offset[metric] = current_offset, token_size + 1
+                current_offset += token_size + 1
+
+    return tokenizer, vocab, offset
 
 
 def main():
@@ -330,7 +342,7 @@ def main():
     metric_values = collect_metric_values(args.input, metric2type)
     
     # Create tokenizer and vocabulary
-    tokenizer, vocab = create_tokenizer(
+    tokenizer, vocab, offset = create_tokenizer(
         metric_values, 
         metric2type, 
         metric2id,
@@ -345,7 +357,8 @@ def main():
     # Create the final output with both tokenizer and vocabulary
     output = {
         "tokenizer": tokenizer,
-        "VOCAB": vocab
+        "VOCAB": vocab,
+        "offset": offset
     }
     
     with open(args.tokenizer_info, "w", encoding="utf-8") as f:

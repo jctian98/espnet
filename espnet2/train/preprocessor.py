@@ -2800,6 +2800,7 @@ class UniversaProcessor(AbsPreprocessor):
         metric2type: Optional[Dict[str, str]] = None,
         metric_token_info: Union[Path, str, Iterable[str]] = None,
         tokenize_numerical_metric: bool = True,
+        reduce_offset: bool = True,
         # other parameters
         force_single_channel: bool = True,
         audio_volume_normalize: float = None,
@@ -2819,6 +2820,7 @@ class UniversaProcessor(AbsPreprocessor):
         self.metric2type = metric2type
         self.metric_token_info = metric_token_info
         self.tokenize_numerical_metric = tokenize_numerical_metric
+        self.reduce_offset = reduce_offset
         self.audio_name = audio_name
         self.ref_audio_name = ref_audio_name
         self.text_name = text_name
@@ -2826,9 +2828,7 @@ class UniversaProcessor(AbsPreprocessor):
         self.force_single_channel = force_single_channel
         self.empty_audio_length = empty_audio_length
 
-        if token_type is not None:
-            if token_list is None:
-                raise ValueError("token_list is required if token_type is not None")
+        if token_type is not None and token_list is not None:
             self.text_cleaner = TextCleaner(text_cleaner)
 
             self.tokenizer = build_tokenizer(
@@ -2975,7 +2975,8 @@ class UniversaProcessor(AbsPreprocessor):
 
                     metric[key] = float(value)
             else:
-                updated_metric = self.metric_tokenizer.metric2token(metric)
+                updated_metric = self.metric_tokenizer.metric2token(metric, reduce_offset=self.reduce_offset)
+                
                 if not self.tokenize_numerical_metric:
                     for key, value in metric.items():
                         if self.metric2type[key] == "numerical":

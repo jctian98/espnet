@@ -275,6 +275,8 @@ class UniversaTask(AbsTask):
             else:
                 categorical_metrics = metrics_list
                 numerical_metrics = []
+                for metric_name in metric2type.keys():
+                    metric2type[metric_name] = "categorical"
 
         if args.sequential_metric:
             not_sequence = []
@@ -315,6 +317,7 @@ class UniversaTask(AbsTask):
                 metric2type=metric2type,
                 metric_token_info=args.metric_token_info,
                 tokenize_numerical_metric=args.tokenize_numerical_metric,
+                reduce_offset=not args.sequential_metric,
             )
         else:
             retval = None
@@ -374,6 +377,7 @@ class UniversaTask(AbsTask):
                 len(metric_token_info["VOCAB"]) + 4
             )  # +2 for <pad> and <unk> and +2 for <sos> and <eos>
             logging.info("Metric vocabulary size: " + str(metric_vocab_size))
+
         else:
             metric_vocab_size = None
 
@@ -414,6 +418,7 @@ class UniversaTask(AbsTask):
             metric_token_pad_value=args.metric_token_pad_value,
             metric2type=metric2type,
             metric_vocab_size=metric_vocab_size,
+            metric_token_info=metric_token_info,
             sequential_metrics=args.sequential_metric,
             **args.universa_conf,
         )

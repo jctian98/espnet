@@ -597,6 +597,7 @@ class UniversaCollateFn(CommonCollateFn):
             for metric in self.categorical_metrics:
                 # NOTE(jiatong): For parallel (non-sequential) option, we do not
                 # use metric_meta_label. only use metric_value
+
                 tensor = torch.tensor(
                     [
                         m.get(metric, (0, self.metric_token_pad_value))[-1]

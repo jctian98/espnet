@@ -27,7 +27,8 @@ if __name__ == "__main__":
         row_num = 0
         for key, metric in metric_reader.items():
             for k, v in metric.items():
-                if k  == "key":
+                # NOTE(jiatong): specifically related to VERSA setup
+                if k  == "key" or "hyp_text" in k:
                     continue
                 if k in metric2type.keys():
                     continue

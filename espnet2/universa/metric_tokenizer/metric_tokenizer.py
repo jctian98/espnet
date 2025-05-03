@@ -31,11 +31,12 @@ class MetricTokenizer(AbsMetricTokenizer):
 
         self.tokenizer_config = config["tokenizer"]
         self.vocab = config["VOCAB"]
+        self.metric_offset = config["offset"]
         self.tokenize_metric = tokenize_metric
 
         # Build inverse mapping for faster lookups
-        self.offset = 4 # Offset for the vocab indices
-        self.vocab_indices = {token: idx + self.offset for idx, token in enumerate(self.vocab)}
+        self.overall_offset = 4 # Offset for the vocab indices
+        self.vocab_indices = {token: idx + self.overall_offset for idx, token in enumerate(self.vocab)}
         self.vocab_indices["<pad>"] = 0  # Add padding token index
         self.vocab_indices["<unk>"] = 1  # Add unknown token index
         self.vocab_indices["<eos>"] = 2  # Add end-of-sequence token index
@@ -47,13 +48,14 @@ class MetricTokenizer(AbsMetricTokenizer):
         for metric_name, values in self.tokenizer_config.items():
             self.metrics[metric_name] = values
 
-    def get_token_index(self, metric_name: str, value_index: int) -> Tuple[int, int]:
+    def get_token_index(self, metric_name: str, value_index: int, reduce_offset: bool = False) -> Tuple[int, int]:
         """
         Get the token indices for a metric and its value.
 
         Args:
             metric_name: Name of the metric
             value_index: Index of the value for this metric
+            reduce_offset: Whether to reduce metric-related offset
 
         Returns:
             Tuple of (meta_label_index, value_index) in the vocabulary
@@ -66,6 +68,9 @@ class MetricTokenizer(AbsMetricTokenizer):
 
         if meta_label_index is None or value_index is None:
             raise ValueError(f"Invalid token: {meta_label_token} or {value_token}")
+
+        if return_offset:
+            value_index = value_index - self.metric_offset[metric_name]
 
         return meta_label_index, value_index
 
@@ -100,7 +105,7 @@ class MetricTokenizer(AbsMetricTokenizer):
 
     @typechecked
     def metric2token(
-        self, metrics: Dict[str, Union[float, str, int, Tuple[int, int]]]
+        self, metrics: Dict[str, Union[float, str, int, Tuple[int, int]]], reduce_offset: bool = False
     ) -> Dict[str, Tuple[int, int]]:
         """
         Convert metrics dictionary to token indices.
@@ -108,6 +113,7 @@ class MetricTokenizer(AbsMetricTokenizer):
         Args:
             metrics: Dictionary of metric names and their values
             return_dict: If True, return a dictionary of token indices instead of a list
+            reduce_offset: Whether to reduce metric-related offset
 
         Returns:
             Dictionary of token indices for each metric (meta_label, value)
@@ -133,7 +139,7 @@ class MetricTokenizer(AbsMetricTokenizer):
             value_index = self._get_value_index(metric_name, value)
 
             # Get the token indices for this metric and value
-            token_pair = self.get_token_index(metric_name, value_index)
+            token_pair = self.get_token_index(metric_name, value_index, reduce_offset=reduce_offset)
             token_indices[metric_name] = token_pair
 
         return token_indices
@@ -229,3 +235,17 @@ class MetricTokenizer(AbsMetricTokenizer):
             )
             return self.tokenizer_config[metric][token_value]
 
+    @typechecked
+    def add_offset(self, src_token: int, metric_name: str) -> int:
+        """
+        Add back the offset related to metrics.
+
+        Args:
+            src_token: source token to be added
+            metric_name: the name of the metric
+
+        Returns:
+            Token with added offset
+        """
+        offset = self.metric_offset[metric_name][0]
+        return src_token + offset
