@@ -237,9 +237,12 @@ def create_tokenizer(
     
     current_offset = 0
     for metric, _ in sorted_metrics:
+        metric_type = metric2type[metric]
+        if metric_type == "numerical" and categorical_only:
+            continue
+
         vocab.append("{}@meta_label".format( metric))
         values = metric_values[metric]
-        metric_type = metric2type[metric]
         
         if metric_type == "categorical":
             # For categorical metrics, simply get unique values
@@ -252,12 +255,13 @@ def create_tokenizer(
                 vocab.append(f"{metric}@{idx+1}")
 
             # Setup offset
-            offset[metric] = current_offset, len(unique_values) + 1
-            current_offset += len(unique_values) + 1
+            # +2 for meta label and padding
+            offset[metric] = current_offset, len(unique_values) + 2
+            current_offset += len(unique_values) + 2
 
             print(f"Metric '{metric}' (categorical): found {len(unique_values)} unique categories")
             
-        elif metric_type == "numerical" and not categorical_only:
+        else:
 
             # Get token size for this metric (use default if not specified)
             token_size = metric2token_size.get(metric, default_token_size)
@@ -310,8 +314,9 @@ def create_tokenizer(
                 print(f"Metric '{metric}' (numerical): created {len(intervals)-1} intervals "
                       f"using {token_size} tokens with '{percentile_distribution}' distribution")
 
-                offset[metric] = current_offset, token_size + 1
-                current_offset += token_size + 1
+                # + 2 for meta label and padding
+                offset[metric] = current_offset, token_size + 2
+                current_offset += token_size + 2
 
     return tokenizer, vocab, offset
 

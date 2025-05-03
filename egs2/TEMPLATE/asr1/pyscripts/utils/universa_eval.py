@@ -100,7 +100,10 @@ def load_metrics(metrics_file, detect_metric_names=False):
             if len(parts) != 2:
                 raise ValueError(f"Invalid line: {line}")
             utt, metrics = parts
-            utt2metrics[utt] = json.loads(metrics)
+            try:
+                utt2metrics[utt] = json.loads(metrics.replace("'", '"').replace("inf", "0"))
+            except:
+                raise ValueError("original line: {}, {}".format(line, metrics.replace("'", '"')))
             if detect_metric_names:
                 metric_names = set(utt2metrics[utt].keys())
                 metric_names.update(metric_names)
@@ -158,7 +161,6 @@ if __name__ == "__main__":
                     ref_metric[sys_id] = []
                 pred_metric[sys_id].append(pred_metrics[utt][metric])
                 ref_metric[sys_id].append(ref_metrics[utt][metric])
-
         if args.level == "utt":
             eval_results = calculate_metrics(
                 ref_metric, pred_metric, prefix="utt_{}".format(metric)
