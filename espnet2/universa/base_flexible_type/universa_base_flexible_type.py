@@ -350,18 +350,26 @@ class UniversaBaseFlexibleType(AbsUniversa):
             # where the metric_pad_value is not 0
             if metric_type == "numerical":
                 final_metric_mask = final_metrics[i] > (self.metric_pad_value + 1e-6)
+                all_invalid = torch.all(final_metric_mask == 0).item()
+                   
                 if self.use_mse:
-                    metric_mse_loss = masked_mse_loss(
-                        pred_metric.squeee(-1), final_metrics[i], final_metric_mask
-                    )
-                    metric_loss = metric_loss + metric_mse_loss
-                    stats[self.id2metric[i] + "_mse"] = metric_mse_loss.detach()
+                    if all_invalid:
+                        stats[self.id2metric[i] + "_mse"] = torch.tensor(0.0).to(audio_enc.device)
+                    else:
+                        metric_mse_loss = masked_mse_loss(
+                            pred_metric.squeee(-1), final_metrics[i], final_metric_mask
+                        )
+                        metric_loss = metric_loss + metric_mse_loss
+                        stats[self.id2metric[i] + "_mse"] = metric_mse_loss.detach()
                 if self.use_l1:
-                    metric_l1_loss = masked_l1_loss(
-                        pred_metric.squeeze(-1), final_metrics[i], final_metric_mask
-                    )
-                    metric_loss = metric_loss + metric_l1_loss
-                    stats[self.id2metric[i] + "_l1"] = metric_l1_loss.detach()
+                    if all_invalid:
+                        stats[self.id2metric[i] + "_l1"] = torch.tensor(0.0).to(audio_enc.device)
+                    else:
+                        metric_l1_loss = masked_l1_loss(
+                            pred_metric.squeeze(-1), final_metrics[i], final_metric_mask
+                        )
+                        metric_loss = metric_loss + metric_l1_loss
+                        stats[self.id2metric[i] + "_l1"] = metric_l1_loss.detach()
                 metric_loss = metric_loss * self.loss_weights[i]
             elif metric_type == "categorical":
                 final_metrics[i] = final_metrics[i].long()

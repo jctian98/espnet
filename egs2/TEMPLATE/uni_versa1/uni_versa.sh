@@ -885,6 +885,11 @@ if ! "${skip_eval}"; then
             _dir="${universa_exp}/${inference_tag}/${dset}"
             _pred_metrics="${_dir}/metric.scp"
 
+            _opts=
+            if [ -n "${metric2type}" ]; then
+                _opts+="--metric2type ${metric2type} "
+            fi
+
             log "Begin evaluation on ${dset}, results are written under ${_dir}"
 
             log "Perform utt-level evaluation, results are written in ${_dir}/utt_result.json"
@@ -893,7 +898,7 @@ if ! "${skip_eval}"; then
                 --ref_metrics "${_ref_metrics}" \
                 --pred_metrics "${_pred_metrics}" \
                 --skip_missing true \
-                --out_file "${_dir}/utt_result.json"
+                --out_file "${_dir}/utt_result.json" ${_opts}
 
             log "Utterance-level evaluation results are as follows:"
             cat "${_dir}/utt_result.json"
@@ -906,7 +911,7 @@ if ! "${skip_eval}"; then
                     --pred_metrics "${_pred_metrics}" \
                     --sys_info "${sys_info}" \
                     --skip_missing true \
-                    --out_file "${_dir}/sys_result.json"
+                    --out_file "${_dir}/sys_result.json" ${_opts}
 
                 log "System-level evaluation results are as follows:"
                 cat "${_dir}/sys_result.json"
