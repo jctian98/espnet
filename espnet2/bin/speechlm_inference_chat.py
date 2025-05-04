@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from typeguard import typechecked
 
 from espnet2.tasks.speechlm import SpeechLMTask
+from espnet2.speechlm.espnet_model import ESPnetSpeechLMModel 
 from espnet2.speechlm.inference_utils import (
     build_inference_config,
     TaskOrientedWriter,
@@ -57,6 +58,13 @@ class SpeechLM:
         model, train_args = SpeechLMTask.build_model_from_file(
             train_config, model_file, device, dtype
         )
+
+        # In case the model is trained with DPO
+        if not isinstance(model, ESPnetSpeechLMModel):
+            del model.reflm
+            model.__class__ = ESPnetSpeechLMModel
+            train_args.model = "espnet"
+
         self.model = model.corelm
         self.train_args = train_args
 

@@ -18,13 +18,17 @@ log() {
 }
 SECONDS=0
 
-stage=4
-stop_stage=4
+stage=5
+stop_stage=5
 
 TULU3=data/local/tulu3
 OpenAudioBench=data/local/openaudiobench
 OLMO2_SFT=/work/hdd/bbjs/jtian1/tools/olmo2_dpo
 OLMO2_DPO=data/local/olmo2_dpo
+
+user_prompt_list=dump/raw_codec_ssl_tts_yodas/train_yodas/index_files/wav.scp       # prompt to generate user speech
+assistant_prompt_list=data/assistant_prompt.scp                                     # prompt to generate assistant speech
+user_prompt_list=$assistant_prompt_list
 
 . utils/parse_options.sh
 
@@ -98,5 +102,49 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
           --task text_dialogue \
           --output_json ${dir}/data.json \
           --file_modality_type ${dir}/dialogue,dialogue,dialogue_json
+    done
+fi
+
+if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
+    log "Convert OpenAudioBench dataset to Speech-to-Speech QA"
+    huggingface-cli download --repo-type dataset --local-dir ${OpenAudioBench} baichuan-inc/OpenAudioBench
+    dir=dump/raw_text_dialogue_openaudiobench
+    python3 local/data_prep_openaudiobench.py \
+      --download_dir ${OpenAudioBench}/eval_datas --output_dir ${dir}
+    
+    # for dset in alpaca_eval llama_questions trivia_qa web_questions; do
+
+    # Audio-Text dialogues
+    # tgt_dir=dump/raw_audio_text_dialogue_openaudiobench
+    # for dset in llama_questions; do
+    #     cp ${dir}/${dset}/data/dialogue.1 ${dir}/${dset}/dialogue
+
+    #     bash scripts/utils/speechlm_text_dialogue_to_speech_dialogue.sh \
+    #       --input_dir ${dir}/${dset} \
+    #       --output_dir ${tgt_dir}/${dset} \
+    #       --task audio_text_dialogue \
+    #       --ready_audio_list ${dir}/${dset}/wav.scp \
+    #       --user_prompt_list ${user_prompt_list} \
+    #       --assistant_prompt_list ${assistant_prompt_list} 
+    # done
+
+    # Audio-Audio dialogues
+    tgt_dir=dump/raw_audio_dialogue_openaudiobench
+    for dset in alpaca_eval llama_questions trivia_qa web_questions; do
+
+        cp ${dir}/${dset}/data/dialogue.1 ${dir}/${dset}/dialogue
+        bash scripts/utils/speechlm_text_dialogue_to_speech_dialogue.sh \
+          --input_dir ${dir}/${dset} \
+          --output_dir ${tgt_dir}/${dset} \
+          --task audio_dialogue \
+          --ready_audio_list ${dir}/${dset}/wav.scp \
+          --user_prompt_list ${user_prompt_list} \
+          --assistant_prompt_list ${assistant_prompt_list} 
+
+        cp ${tgt_dir}/${dset}/data/dialogue.1 ${tgt_dir}/${dset}/dialogue
+        python3 pyscripts/utils/make_speechlm_json.py \
+          --task audio_dialogue \
+          --output_json ${tgt_dir}/${dset}/data.json \
+          --file_modality_type ${tgt_dir}/${dset}/dialogue,dialogue,dialogue_json
     done
 fi

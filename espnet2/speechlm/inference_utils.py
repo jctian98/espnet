@@ -193,19 +193,23 @@ class TaskOrientedWriter:
                 segment = segment[segment[:, 0] != self.pad]
 
                 if modality_ == "codec_ssl":
-                    segment = segment[:, 1:] - self.token_bias["codec"][0]
-                    segment = segment.view(-1).contiguous()
+                    segment_codec = segment[:, 1:] - self.token_bias["codec"][0]
+                    segment_codec = segment_codec.view(-1).contiguous()
                     detokenized = tokenizer.detokenize(
-                        segment.clone(),
+                        segment_codec.clone(),
                         n_codebook=config.nq - 1,
                     )
+
+                    # Keep segment for saving, only substract ssl bias
+                    segment = segment - self.token_bias["ssl"][0]
                 
                 elif modality_ == "text_bpe":
                     segment = segment[:, 0]
-                    segment = segment.view(-1).contiguous()
+                    segment = segment.view(-1).contiguous() 
                     detokenized = tokenizer.tokens2text(
                         [self.token_list[tok] for tok in segment]
                     ).strip()
+                    segment = segment - self.token_bias['text_bpe'][0]
                 
                 # (3.2) write
                 if is_prefill:
@@ -213,7 +217,7 @@ class TaskOrientedWriter:
                 else:
                     this_uid = f"{uid}_sample{s_idx}"
                 
-                self.token_writers[name][this_uid] = segment.int().cpu().numpy()
+                self.token_writers[name][this_uid] = segment.flatten().int().cpu().numpy()
 
                 if modality_ == "codec_ssl":
                     audio_path = str(self.output_dir / name / f"{this_uid}.wav")
@@ -290,13 +294,15 @@ class ChatOrientedWriter:
 
             # detokenize
             if modality == "codec_ssl":
-                segment = segment[:, 1:] - self.token_bias["codec"][0]
-                segment = segment.view(-1).contiguous()
+                segment_codec = segment[:, 1:] - self.token_bias["codec"][0]
+                segment_codec = segment_codec.view(-1).contiguous()
                 tokenizer = self.inference_config[modality].tokenizer
                 detokenized = tokenizer.detokenize(
-                    segment.clone(),
+                    segment_codec.clone(),
                     n_codebook=self.inference_config[modality].nq - 1,
                 )
+
+                segment = segment - self.token_bias["ssl"][0]
             
             elif modality == "text_bpe":
                 segment = segment[:, 0]

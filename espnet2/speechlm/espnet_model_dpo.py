@@ -124,5 +124,5 @@ class ESPnetSpeechLMDPOModel(AbsESPnetModel):
     def state_dict(self, **kwargs):
         """ Only save the corelm parameters, not reflm """
         state_dict = super().state_dict(**kwargs)
-        state_dict = {k: v for k, v in state_dict.items() if k.startswith("corelm.")}
+        state_dict = {k: v for k, v in state_dict.items() if not k.startswith("reflm.")}
         return state_dict

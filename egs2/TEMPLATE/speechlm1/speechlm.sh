@@ -39,6 +39,7 @@ num_nodes=1          # The number of nodes.
 nj=32                # The number of parallel jobs.
 inference_nj=32      # The number of parallel jobs in decoding.
 gpu_inference=false  # Whether to perform gpu decoding.
+inference_dir=       # directory to save inference results
 dumpdir=dump         # Directory to dump features.
 expdir=exp           # Directory to save experiments.
 python=python3       # Specify python to execute espnet commands.
@@ -731,7 +732,11 @@ if ! "${skip_eval}"; then
         for test_json in ${test_jsons}; do
             task=$(grep -o '"task": *[^,}]*' ${test_json} | sed -e 's/"task": *//' -e 's/"//g')
             dset=$(basename $(dirname "${test_json}"))
-            _dir="${speechlm_exp}/${inference_tag}/${task}_${dset}"
+            if [ -n "${inference_dir}" ]; then
+                _dir="${inference_dir}/${task}_${dset}"
+            else
+                _dir="${speechlm_exp}/${inference_tag}/${task}_${dset}"
+            fi
             _logdir="${_dir}/log"
             mkdir -p ${_logdir}
 
@@ -786,7 +791,12 @@ if ! "${skip_eval}"; then
             task=$(grep -o '"task": *[^,}]*' ${test_json} | sed -e 's/"task": *//' -e 's/"//g')
             _src_dir="$(dirname "${test_json}")"
             _dset="$(basename ${_src_dir})"
-            _dir="${speechlm_exp}/${inference_tag}/${task}_${_dset}";
+
+            if [ -n "${inference_dir}" ]; then
+                _dir="${inference_dir}/${task}_${_dset}"
+            else
+                _dir="${speechlm_exp}/${inference_tag}/${task}_${_dset}"
+            fi
             mkdir -p ${_dir}/eval_cache
 
             target_triplets=$(python -c "from espnet2.speechlm.definitions import SPEECHLM_TASKS; print(SPEECHLM_TASKS['${task}'].target_string)")

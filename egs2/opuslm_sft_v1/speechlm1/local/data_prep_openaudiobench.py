@@ -5,15 +5,12 @@
 
 import argparse
 import logging
-import random
 import csv
 import json
 
 from pathlib import Path
 from espnet2.speechlm.dialogue.dialogue_format import Dialogue, DialogueDataset
 
-
-random.seed(42)
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -54,6 +51,8 @@ def main():
 
         dataset = DialogueDataset(task="text_dialogue")
         data_dict = {}
+
+        wav_writer = open(write_dir / 'wav.scp', 'w')
 
         if subset == "alpaca_eval":
             que_key = "instruction"
@@ -97,8 +96,10 @@ def main():
             dialogue = Dialogue(task="text_dialogue")
             dialogue.add_segment("user", "text_bpe", False, question)
             dialogue.add_segment("assistant", "text_bpe", True, answer)
-            
-            dataset.add_dialogue(row[aud_key], dialogue)
+            dataset.add_dialogue(key, dialogue)
+
+            # Audio of the first turn.
+            wav_writer.write(f"{key}_turn0_speech {audio}\n")
         
         dataset.dump_dataset(write_dir)
 
