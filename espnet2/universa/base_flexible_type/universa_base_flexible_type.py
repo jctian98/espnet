@@ -520,12 +520,16 @@ class UniversaBaseFlexibleType(AbsUniversa):
             metric_name = self.id2metric[i]
             metric_type = self.id2type[i]
             if metric_type == "numerical":
-                results[metric_name] = pred_metrics[i]
+                numerical_result = list(pred_metrics[i].view(-1).cpu().numpy())
+                results[metric_name] = [float(num) for num in numerical_result]
             else:
+                # print(pred_metrics[i], flush=True)
+                pred_metrics[i][:, 0] = -1e10
                 category_id = pred_metrics[i].argmax(dim=-1).cpu().numpy()
                 category_vocab = self.metric_tokenizer.add_offset(category_id, metric_name)
-                assert len(category_vocab) == 1, "now only support batch size 1" # TODO(jiatong)
-                results[metric_name] = self.metric_tokenizer.token2metric(category_vocab[0])
+                # print(metric_name, category_id, category_vocab, flush=True)
+                category_results = [self.metric_tokenizer.token2metric(token, metric_name) for token in category_vocab]
+                results[metric_name] = category_results
  
         results["use_tokenizer_metrics"] = self.category_metrics
         results["sequential_metrics"] = False

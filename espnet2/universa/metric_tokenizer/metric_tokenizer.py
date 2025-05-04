@@ -234,10 +234,12 @@ class MetricTokenizer(AbsMetricTokenizer):
                 raise ValueError("Metric name must be provided for non-meta_label tokens")
             if metric not in self.tokenizer_config.keys():
                 raise ValueError(f"Unknown metric: {metric}")
-            assert token_value >= 0 and token_value < len(self.tokenizer_config[metric]), (
+
+            # NOTE(jiatong): the first token is for padding
+            assert token_value >= 1 and token_value <= len(self.tokenizer_config[metric]), (
                 f"Invalid token value: {token_value} for metric {metric}"
             )
-            return self.tokenizer_config[metric][token_value]
+            return self.tokenizer_config[metric][token_value - 1]
 
     @typechecked
     def add_offset(self, src_tokens: Iterable[int], metric_name: str) -> List[int]:
@@ -252,4 +254,5 @@ class MetricTokenizer(AbsMetricTokenizer):
             Token with added offset
         """
         offset = self.metric_offset[metric_name][0]
-        return [int(t + offset + self.overall_offset) for t in src_tokens]
+        # NOTE(jiatong): +1 for position of meta label
+        return [int(t + offset + 1) for t in src_tokens]

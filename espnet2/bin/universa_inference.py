@@ -100,9 +100,8 @@ class UniversaInference:
 
         output_dict = self.model.inference(**batch, **kwargs)
 
-        # Further process the output with tokenizer if needed
-        if output_dict["sequential_metrics"]:
-            pass
+        output_dict.pop("use_tokenizer_metrics")
+        output_dict.pop("sequential_metrics")
         return output_dict
 
     @property
@@ -212,8 +211,8 @@ def inference(
 
             for i in range(_bs):
                 key = keys[i]
-                # NOTE(jiatong): assume the prediction target is 1-dimensional.
-                metrics_info = {k: float(v[i, 0]) for k, v in results.items()}
+                metrics_info = {k: v[i] for k, v in results.items()}
+                print(metrics_info, flush=True)
                 writer["metric.scp"][key] = json.dumps(metrics_info)
 
 
