@@ -20,6 +20,7 @@ from espnet2.spk.projector.xvector_projector import XvectorProjector
 from espnet2.torch_utils.device_funcs import force_gatherable
 from espnet2.universa.abs_universa import AbsUniversa
 from espnet2.universa.base.loss import masked_l1_loss, masked_mse_loss
+from espnet2.universa.metric_tokenizer.metric_tokenizer import MetricTokenizer
 from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
 from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
 
@@ -162,7 +163,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
         ), "At least one loss function should be enabled"
         self.metric_pad_value = metric_pad_value
         self.metric_token_pad_value = metric_token_pad_value
-        self.metric_token_info = metric_token_info
+        self.metric_tokenizer = MetricTokenizer(metric_token_info, tokenize_metric=list(metric2id.keys()))
 
         if metric2type is None:
             self.id2type = {i: "numerical" for i in self.metric_size}
@@ -240,7 +241,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
             if metric_type == "numerical":
                 projector_dim = 1
             elif metric_type == "categorical":
-                projector_dim = self.metric_token_info["offset"][self.id2metric[i]][-1] + 1
+                projector_dim = self.metric_tokenizer.metric_offset[self.id2metric[i]][-1] + 1
                 self.category_metrics.append(self.id2metric[i])
                 self.category_metrics_dim[i] = projector_dim
             else:
@@ -514,10 +515,18 @@ class UniversaBaseFlexibleType(AbsUniversa):
             Dict[str, Union[np.array, torch.Tensor]]: Decorated predicted metrics.
 
         """
-        results = {
-            self.id2metric[i]: pred_metrics[i].detach().cpu().numpy()
-            for i in range(self.metric_size)
-        }
+        results = {}
+        for i in range(self.metric_size):
+            metric_name = self.id2metric[i]
+            metric_type = self.id2type[i]
+            if metric_type == "numerical":
+                results[metric_name] = pred_metrics[i]
+            else:
+                category_id = pred_metrics[i].argmax(dim=-1).cpu().numpy()
+                category_vocab = self.metric_tokenizer.add_offset(category_id, metric_name)
+                assert len(category_vocab) == 1, "now only support batch size 1" # TODO(jiatong)
+                results[metric_name] = self.metric_tokenizer.token2metric(category_vocab[0])
+ 
         results["use_tokenizer_metrics"] = self.category_metrics
         results["sequential_metrics"] = False
         return results

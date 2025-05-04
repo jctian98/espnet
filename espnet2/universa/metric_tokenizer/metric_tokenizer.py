@@ -1,6 +1,6 @@
 import json
 from abc import ABC, abstractmethod
-from typing import Dict, Iterable, List, Tuple, Union, Optional
+from typing import Any, Dict, Iterable, List, Tuple, Union, Optional
 
 from typeguard import typechecked
 
@@ -18,16 +18,19 @@ class AbsMetricTokenizer(ABC):
 
 
 class MetricTokenizer(AbsMetricTokenizer):
-    def __init__(self, tokenizer_config_path: str, tokenize_metric: List[str]):
+    def __init__(self, tokenizer_config: Union[str, Dict[str, Any]], tokenize_metric: List[str]):
         """
         Initialize the MetricTokenizer with a configuration file path.
 
         Args:
-            tokenizer_config_path: Path to the tokenizer configuration JSON file
+            tokenizer_config: The tokenizer configuration JSON file/Dictionary
             tokenize_metric: List of metric names to be tokenized
         """
-        with open(tokenizer_config_path, "r") as f:
-            config = json.load(f)
+        if type(tokenizer_config) == str:
+            with open(tokenizer_config, "r") as f:
+                config = json.load(f)
+        else:
+            config = tokenizer_config
 
         self.tokenizer_config = config["tokenizer"]
         self.vocab = config["VOCAB"]
@@ -129,7 +132,7 @@ class MetricTokenizer(AbsMetricTokenizer):
                 continue
 
             if metric_name not in self.metrics:
-                raise ValueError(f"Unknown metric: {metric_name}")
+                continue
 
             if type(value) == tuple:
                 # already tokenized
@@ -237,16 +240,16 @@ class MetricTokenizer(AbsMetricTokenizer):
             return self.tokenizer_config[metric][token_value]
 
     @typechecked
-    def add_offset(self, src_token: int, metric_name: str) -> int:
+    def add_offset(self, src_tokens: Iterable[int], metric_name: str) -> List[int]:
         """
         Add back the offset related to metrics.
 
         Args:
-            src_token: source token to be added
+            src_tokens: source tokens to be added
             metric_name: the name of the metric
 
         Returns:
             Token with added offset
         """
         offset = self.metric_offset[metric_name][0]
-        return src_token + offset + self.overall_offset
+        return [int(t + offset + self.overall_offset) for t in src_tokens]

@@ -150,7 +150,7 @@ class ESPnetUniversaModel(AbsESPnetModel):
         self,
         audio: torch.Tensor,
         audio_lengths: torch.Tensor,
-        metrics_meta_labels: List[int] = None,
+        metrics_meta_labels: Optional[List[int]] = None,
         ref_audio: Optional[torch.Tensor] = None,
         ref_audio_lengths: Optional[torch.Tensor] = None,
         ref_text: Optional[torch.Tensor] = None,

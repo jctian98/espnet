@@ -103,16 +103,6 @@ class UniversaInference:
         # Further process the output with tokenizer if needed
         if output_dict["sequential_metrics"]:
             pass
-        elif output_dict["use_tokenizer_metrics"]:
-            for k, v in output_dict.items():
-                if k == "use_tokenizer_metrics" or k == "sequential_metrics":
-                    continue
-                if k in output_dict["use_tokenizer_metrics"]:
-                    v = self.metric_tokenizer.token2metric(
-                        v, k
-                    )
-                    output_dict[k] = v
-            
         return output_dict
 
     @property
