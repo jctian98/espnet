@@ -447,6 +447,8 @@ if ! "${skip_data_prep}"; then
                     awk ' { if( NF != 1 ) print $0; } ' > ${data_feats}/${dset}/${utt_extra_file}
             done
 
+
+            echo "process filtering"
             # fix_data_dir.sh leaves only utts which exist in all files
             utils/fix_data_dir.sh --utt_extra_files "${utt_extra_files}" "${data_feats}/${dset}"
 
@@ -752,6 +754,8 @@ if ! "${skip_train}"; then
                 --train_data_path_and_name_and_type "${_train_dir}/metric.scp,metrics,metric" \
                 --valid_data_path_and_name_and_type "${_valid_dir}/${_scp},audio,${_type}" \
                 --valid_data_path_and_name_and_type "${_valid_dir}/metric.scp,metrics,metric" \
+                --use_ref_text ${use_ref_text} \
+                --use_ref_audio ${use_ref_wav} \
                 --metric2id ${metric2id} \
                 --metric2type "${metric2type}" \
                 --metric_token_info "${metric_token_info}" \
