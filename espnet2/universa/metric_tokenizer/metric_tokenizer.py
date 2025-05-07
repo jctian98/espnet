@@ -255,4 +255,4 @@ class MetricTokenizer(AbsMetricTokenizer):
         """
         offset = self.metric_offset[metric_name][0]
         # NOTE(jiatong): +1 for position of meta label
-        return [int(t + offset + 1) for t in src_tokens]
+        return [int(t + offset) for t in src_tokens]
