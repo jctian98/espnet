@@ -210,7 +210,7 @@ class MetricTokenizer(AbsMetricTokenizer):
         return formatted_result
     
     @typechecked
-    def token2metric(self, token: int, metric: Optional[str] = None) -> str:
+    def token2metric(self, token: int, metric: Optional[str] = None) -> Union[float, str]:
         """
         Convert a single token index back to its metric representation.
 

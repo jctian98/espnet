@@ -364,6 +364,8 @@ class UniversaTask(AbsTask):
             if args.metric2type
             else None
         )
+        if args.tokenize_numerical_metric:
+            metric2type = {k: "categorical" for k, v in metric2type.items()}
 
         # Process metric token list
         if args.metric_token_info is not None:

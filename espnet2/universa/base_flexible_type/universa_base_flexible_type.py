@@ -345,7 +345,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 # skip numeric stability with float16
                 pred_metric = self.projector[i](pooling_output)
 
-            metric_loss = 0.0
+            metric_loss = torch.tensor(0.0).to(audio_enc.device)
             # NOTE(jiatong): we use > instead of != to handle the case
             # where the metric_pad_value is not 0
             if metric_type == "numerical":
@@ -376,6 +376,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 final_metric_mask = final_metrics[i] != self.metric_token_pad_value
                 if final_metric_mask.sum() == 0:
                     metric_loss = torch.tensor(0.0).to(audio_enc.device)
+                    metric_acc = 0.0
                 else:
                     metric_dim = self.category_metrics_dim[i]
                     metric_loss = F.cross_entropy(
@@ -384,7 +385,15 @@ class UniversaBaseFlexibleType(AbsUniversa):
                         ignore_index=self.metric_token_pad_value,
                         reduction="mean",
                     )
+                    # Get predicted classes using argmax
+                    pred_classes = torch.argmax(pred_metric, dim=-1)
+
+                    # Calculate accuracy (ignoring padding tokens)
+                    mask = (final_metrics[i] != self.metric_token_pad_value)
+                    correct = (pred_classes == final_metrics[i]) & mask
+                    metric_acc = correct.sum().float() / mask.sum().float().detach()
                 stats[self.id2metric[i] + "_cross_entropy"] = metric_loss.detach()
+                stats[self.id2metric[i] + "_acc"] = metric_acc
                 metric_loss = metric_loss * self.loss_weights[i]
             stats[self.id2metric[i] + "_overall"] = metric_loss.detach()
             loss = loss + metric_loss
@@ -505,6 +514,11 @@ class UniversaBaseFlexibleType(AbsUniversa):
             with autocast(False):
                 # skip numeric stability with float16
                 pred_metric = self.projector[i](pooling_output)
+            # if self.metric2id["nomad"] == i:
+            #     print(pred_metric, self.projector[i], flush=True)
+            #     for name, param in self.projector[i].named_parameters():
+            #         print(f"Layer: {name} | Size: {param.size()} | Values: {param[:2]} ...", flush=True)
+            #     exit(0)
             pred_metrics.append(pred_metric)
         pred_metrics = self._inference_decoration(pred_metrics)
         return pred_metrics

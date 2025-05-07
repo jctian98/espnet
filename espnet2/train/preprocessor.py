@@ -2864,6 +2864,7 @@ class UniversaProcessor(AbsPreprocessor):
             self.metric_tokenizer = MetricTokenizer(
                 metric_token_info, tokenize_metric=tokenize_metric
             )
+            print("tokenize_numerical_metric: {}".format(tokenize_numerical_metric))
             print("tokenize_metric: {}".format(tokenize_metric), flush=True)
 
         self.fs = fs
