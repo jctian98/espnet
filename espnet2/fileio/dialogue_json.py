@@ -1,5 +1,6 @@
 import json
 import kaldiio
+import re
 
 class DialogueJsonReader:
     def __init__(self, path):
@@ -21,7 +22,7 @@ class DialogueJsonReader:
         # TODO: load kaldiio data
         retval = list()
         for role, modality, target, content in self.data[name]:
-            if modality in ["codec", "ssl", "codec_ssl", "image"]:
+            if re.match(r".*\.ark:\d+$", content):
                 content = kaldiio.load_mat(content)
             retval.append((role, modality, target, content))
         

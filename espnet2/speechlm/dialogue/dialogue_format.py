@@ -36,15 +36,15 @@ class Dialogue:
     def to_str(self):
         string = ""
         for segment in self.segments:
-            role, _, content = segment
-            string += f"**{role}**: {content}\n"
+            role, modality, target, content = segment
+            string += f"role={role}, modality={modality}, target={target}, content={content}\n"
 
         return string.strip()
 
 class DialogueDataset:
     def __init__(self, task):
 
-        if task not in ["text_dialogue", "audio_dialogue", "vision_dialogue"]:
+        if task not in ["text_dialogue", "audio_dialogue", "audio_text_dialogue", "vision_dialogue"]:
             raise ValueError("dialogue support: text, audio, vision")
         self.task = task
 

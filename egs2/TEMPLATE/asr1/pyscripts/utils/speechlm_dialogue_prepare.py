@@ -3,6 +3,7 @@
 # Copyright 2025 Jinchuan Tian
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
+import os
 import argparse
 import logging
 import json
@@ -59,22 +60,28 @@ def main():
     args = parser.parse_args()
 
     # (1) load all files
-    if args.user_prompt_list is not None:
+    if os.path.exists(args.user_prompt_list):
         user_prompts = read_2columns_text(args.user_prompt_list)
         user_prompts = list(user_prompts.values())
     else:
-        user_prompts = None
+        raise ValueError(
+            f"User prompt list is not properly provided {args.user_prompt_list}"
+        )
     
-    if args.assistant_prompt_list is not None:
+    if os.path.exists(args.assistant_prompt_list):
         assistant_prompts = read_2columns_text(args.assistant_prompt_list)
         assistant_prompts = list(assistant_prompts.values())
     else:
-        assistant_prompts = None
+        raise ValueError(
+            f"Assistant prompt list is not properly provided {args.assistant_prompt_list}"
+        )
     
-    if args.ready_audio_list is not None:
+    if os.path.exists(args.ready_audio_list):
         ready_audio = read_2columns_text(args.ready_audio_list)
     else:
-        ready_audio = None
+        ready_audio = dict()
+        logging.info(f"No existing audio is provided")
+        
     
     all_json_files = set(
         line.strip().split()[1] for line in open(args.input_dir / 'dialogue')
@@ -182,7 +189,7 @@ def save_adaptive(
         ark_wav_writer.write(f"{segment_id} {content}\n")
     
     # audio scp file or pipe scp file
-    elif content.endswith(".wav") or content.endswith("|") or content.endswith(".mp3"):
+    elif (content.endswith(".wav") or content.endswith(".mp3")) and " " not in content:
         tok_wav_writer.write(f"{segment_id} {content}\n")
     
     else:

@@ -245,6 +245,11 @@ SPEECHLM_TASKS["continuous_image_to_text"] = SpeechLMTaskTemplate(
     targets=[("text", "text_bpe", "text")],
 )
 
+SPEECHLM_TASKS["audio_text_dialogue"] = SpeechLMTaskTemplate(
+    conditions=[],
+    targets=[("dialogue", "dialogue", "dialogue_json")],
+)
+
 # END OF TASK DEFINITION #
 
 # (3) Special token definition

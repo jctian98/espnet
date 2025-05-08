@@ -85,7 +85,11 @@ def main():
         file_path = file_triplet[0]
         feat_name = file_path.split("/")[-1]
         for line in open(file_path):
-            example_id, content = line.strip().split(maxsplit=1)
+            try:
+                example_id, content = line.strip().split(maxsplit=1)
+            except:
+                print('Warning: cannot parse line: ', line)
+                continue
             if example_id not in example_dict:
                 example_dict[example_id] = {}
             example_dict[example_id][feat_name] = content

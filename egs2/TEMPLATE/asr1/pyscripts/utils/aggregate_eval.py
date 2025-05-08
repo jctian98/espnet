@@ -48,9 +48,6 @@ def aggregate_results(logdir: str, scoredir: str, nj: int) -> None:
             for line in f:
                 line = (
                     line.strip()
-                    .replace("'", '"')
-                    .replace("inf", "Infinity")
-                    .replace(f"nan", "0.0")
                 )
                 score_info.append(json.loads(line))
     with open("{}/utt_result.txt".format(scoredir), "w") as f, open(

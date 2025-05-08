@@ -19,7 +19,7 @@ log() {
 
 stage=1
 stop_stage=100
-nj=16                # number of parallel jobs
+nj=64               # number of parallel jobs
 fs=16000            # sampling frequency
 python=python3      # Specify python to execute espnet commands.
 
@@ -41,10 +41,10 @@ ssl_kmeans_path=exp/kmeans/xeus_18_5000clusters/km_5000.mdl
 ssl_batch_bins=5000000
 
 # TTS simulation
-exp_tag=Opuslm_7b_baseline
-inference_model=5epoch.pth
+exp_tag=opuslm_1.7b_baseline
+inference_model=117epoch_revised.pth
 expdir=exp
-nbest=10
+nbest=5
 inference_config=conf/decode_general.yaml
 
 . ./utils/parse_options.sh
@@ -110,6 +110,7 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
           --stage 9 --stop_stage 10 \
           --skip_data_prep true \
           --inference_nj ${nj} \
+          --nj ${nj} \
           --tag ${exp_tag} \
           --inference_model ${inference_model} \
           --inference_config ${inference_config} \

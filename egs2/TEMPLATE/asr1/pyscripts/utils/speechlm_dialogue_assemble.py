@@ -3,6 +3,7 @@
 # Copyright 2025 Jinchuan Tian
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
+import os
 import argparse
 import logging
 import json
@@ -52,8 +53,11 @@ def main():
     
     ready_audios = dict()
     for file in args.ready_audio:
-        logging.info(f"loading ready audio file: {file}")
-        ready_audios.update(read_2columns_text(file))
+        if os.path.exists(file):
+            logging.info(f"loading ready audio file: {file}")
+            ready_audios.update(read_2columns_text(file))
+        else:
+            logging.info(f'Cannot find {file}. Skip')
     
     # (2) process one-by-one
     dataset = DialogueDataset(task=args.task)
@@ -64,7 +68,7 @@ def main():
 
         if args.task == "audio_dialogue":
             prompt = ready_audios[f"{uid}_assistant_prompt"]
-            dialogue.add_segment("system", "codec_ssl", False, prompt)
+            dialogue.add_segment("system", "spk", False, prompt)
         
         if segments[0][0] == "system":
             dialogue.add_segment(*segments[0])
@@ -74,15 +78,17 @@ def main():
             role, modality, target, content = segment
 
             # audio first, text second
-            audio = ready_audios[f"{uid}_turn{s_idx}_speech"]
             if role == "user":
+                audio = ready_audios[f"{uid}_turn{s_idx}_speech"]
                 dialogue.add_segment("user", "codec_ssl", False, audio)
-                dialogue.add_segment(f"user", "text_bpe", True, content)
+                dialogue.add_segment(f"assistant", "text_bpe", True, content)
             
             # text first, audio second
             elif role == "assistant":
                 dialogue.add_segment(f"assistant", "text_bpe", True, content)
-                dialogue.add_segment(f"assistant", "codec_ssl", True, audio)
+                if args.task == "audio_dialogue":
+                    audio = ready_audios[f"{uid}_turn{s_idx}_speech"]
+                    dialogue.add_segment(f"assistant", "codec_ssl", True, audio)
             
         dataset.add_dialogue(uid, dialogue)
     
