@@ -471,7 +471,7 @@ class UniversaCollateFn(CommonCollateFn):
         self.metric_pad_value = metric_pad_value
         self.metric_token_pad_value = metric_token_pad_value
         self.randomize = randomize
-        
+
         if self.randomize:
             # Shuffle the items to randomize their order
             logger.info("Randomizing the order of the metrics.")
