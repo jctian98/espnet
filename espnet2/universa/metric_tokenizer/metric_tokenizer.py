@@ -225,8 +225,8 @@ class MetricTokenizer(AbsMetricTokenizer):
 
             # Extract value index from value token
             value_index = (
-                int(value_token.split("@")[-1]) - 1
-            )  # NOTE(jiatong): -1 for padding
+                int(value_token.split("@")[-1])
+            ) 
             assert (
                 value_index >= 0
             ), f"Invalid value index: {value_index} for token {value_token}"
