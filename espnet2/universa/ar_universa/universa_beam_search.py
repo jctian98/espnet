@@ -139,8 +139,8 @@ class ARUniVERSABeamSearch:
             torch.Tensor: New tensor contains: xs + [x] with xs.dtype and xs.device
 
         """
-        x = torch.tensor([x], dtype=xs.dtype, device=xs.device)
-        return torch.cat((xs, x))
+        new_x = torch.tensor([x], dtype=xs.dtype, device=xs.device)
+        return torch.cat((xs, new_x))
 
     @typechecked
     def score(
@@ -199,7 +199,6 @@ class ARUniVERSABeamSearch:
         local_ids = weighted_scores[ids].topk(self.beam_size)[1]
         return top_ids, local_ids
 
-    @typechecked
     @staticmethod
     def merge_scores(
         prev_scores: Dict[str, float],
@@ -225,7 +224,6 @@ class ARUniVERSABeamSearch:
             new_scores[k] = prev_scores[k] + v[idx]
         return new_scores
 
-    @typechecked
     def extend(
         self,
         running_hyps: List[Hypothesis],
@@ -262,6 +260,7 @@ class ARUniVERSABeamSearch:
 
             # update hyps
             for j, _ in zip(*self.beam(weighted_scores, part_ids)):
+                j = int(j)
                 # will be (2 x beam at most)
                 extended_hyps.append(
                     Hypothesis(
@@ -276,7 +275,6 @@ class ARUniVERSABeamSearch:
                 )
         return extended_hyps
 
-    # @typechecked
     def search(
         self,
         running_hyps: List[Hypothesis],
@@ -313,6 +311,7 @@ class ARUniVERSABeamSearch:
 
             # update hyps
             for j in self.beam(weighted_scores, part_ids):
+                j = int(j)
                 # will be (2 x beam at most)
                 best_hyps.append(
                     Hypothesis(
@@ -332,7 +331,6 @@ class ARUniVERSABeamSearch:
             ]
         return best_hyps
 
-    @typechecked
     def forward(
         self,
         x: torch.Tensor,
