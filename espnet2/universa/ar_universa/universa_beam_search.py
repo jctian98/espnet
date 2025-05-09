@@ -55,7 +55,7 @@ class ARUniVERSABeamSearch:
         eos: int,
         meta_label_for_search: List[int],
         token_list: List[str] = None,
-        extend_without_scorer: bool = False,
+        skip_meta_label_score: bool = False,
         beam_masking: Dict[int, Tuple[int, int]] = None,
     ):
         """Initialize beam search.
@@ -72,7 +72,7 @@ class ARUniVERSABeamSearch:
             eos (int): End of sequence id
             meta_label_for_search (list[int]): List of meta label ids for search
             token_list (list[str]): List of tokens for debug log
-            extend_without_scorer (bool): Whether to extend without scorer.
+            skip_meta_label_score (bool): Whether to extend without scorer.
                 If True, the beam search will be performed without scoring.
 
         """
@@ -80,7 +80,7 @@ class ARUniVERSABeamSearch:
         # set scorers
         self.weights = weights
         self.meta_label_for_search = meta_label_for_search
-        self.extend_without_scorer = extend_without_scorer
+        self.skip_meta_label_score = skip_meta_label_score
         self.beam_masking = beam_masking
         self.scorers = dict()
 
@@ -244,7 +244,7 @@ class ARUniVERSABeamSearch:
         extended_hyps = []
         part_ids = torch.tensor(unused_meta_label_ids, device=x.device)
         for hyp in running_hyps:
-            if self.extend_without_scorer:
+            if self.skip_meta_label_score:
                 weighted_scores = torch.zeros(
                     self.n_vocab, dtype=x.dtype, device=x.device
                 )

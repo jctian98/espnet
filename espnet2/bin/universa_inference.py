@@ -35,6 +35,11 @@ class UniversaInference:
         device: str = "cpu",
         seed: int = 777,
         always_fix_seed: bool = False,
+        beam_size: int = 1,
+        skip_meta_label_score: bool = False,
+        save_token_seq: bool = False,
+        use_fixed_order: bool = False,
+        fixed_metric_name_order: str = "",
     ):
         """Initialize UniversaInference class."""
 
@@ -53,6 +58,23 @@ class UniversaInference:
         self.metric_tokenizer = self.preprocess_fn.metric_tokenizer
         self.seed = seed
         self.always_fix_seed = always_fix_seed
+
+        self.beam_size = beam_size
+        self.skip_meta_label_score = skip_meta_label_score
+        self.save_token_seq = save_token_seq
+        # TODO(jiatong): to set fixed order cases
+        self.use_fixed_order = use_fixed_order
+        self.fixed_metric_name_order = fixed_metric_name_order
+
+        if self.model.universa.sequential_metrics:
+            metric_list = list(self.model.universa.metric2id.keys())
+            self.model.universa.set_inference(
+                beam_size=beam_size,
+                metric_list=metric_list,
+                skip_meta_label_score=skip_meta_label_score,
+                save_token_seq=save_token_seq,
+            )
+
         logging.info(f"Frontend: {model.frontend}")
         logging.info(f"Universa: {model.universa}")
 
@@ -148,6 +170,11 @@ def inference(
     model_file: Optional[str],
     model_tag: Optional[str],
     always_fix_seed: bool,
+    beam_size: int,
+    skip_meta_label_score: bool,
+    save_token_seq: bool,
+    use_fixed_order: bool,
+    fixed_metric_name_order: str,
     allow_variable_data_keys: bool,
 ):
     """Run inference."""
@@ -181,6 +208,11 @@ def inference(
         dtype=dtype,
         seed=seed,
         always_fix_seed=always_fix_seed,
+        beam_size=beam_size,
+        skip_meta_label_score=skip_meta_label_score,
+        save_token_seq=save_token_seq,
+        use_fixed_order=use_fixed_order,
+        fixed_metric_name_order=fixed_metric_name_order,
         device=device,
     )
 
@@ -212,7 +244,6 @@ def inference(
             for i in range(_bs):
                 key = keys[i]
                 metrics_info = {k: v[i] for k, v in results.items()}
-                print(metrics_info, flush=True)
                 writer["metric.scp"][key] = json.dumps(metrics_info)
 
 
@@ -293,6 +324,36 @@ def get_parser():
         type=str2bool,
         default=False,
         help="Whether to always fix seed",
+    )
+    group.add_argument(
+        "--beam_size",
+        type=int,
+        default=1,
+        help="Beam size for beam search decoding for autoregressive models",
+    )
+    group.add_argument(
+        "--skip_meta_label_score",
+        type=str2bool,
+        default=False,
+        help="Whether to skip meta label score in decoding for autoregressive models",
+    )
+    group.add_argument(
+        "--save_token_seq",
+        type=str2bool,
+        default=False,
+        help="Whether to save token sequence in decoding for autoregressive models",
+    )
+    group.add_argument(
+        "--use_fixed_order",
+        type=str2bool,
+        default=False,
+        help="Whether to use fixed order for decoding for autoregressive models",
+    )
+    group.add_argument(
+        "--fixed_metric_name_order",
+        type=str,
+        default="",
+        help="Fixed metric name order for decoding for autoregressive models",
     )
     return parser
 
