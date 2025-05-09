@@ -19,16 +19,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     metric_reader = MetricReader(args.metric_scp)
-    reading_size = (
-        args.reading_size if args.reading_size > 0 else len(metric_reader)
-    )
+    reading_size = args.reading_size if args.reading_size > 0 else len(metric_reader)
     metric2type = dict()
     with open(args.metric2type, "w") as f:
         row_num = 0
         for key, metric in metric_reader.items():
             for k, v in metric.items():
                 # NOTE(jiatong): specifically related to VERSA setup
-                if k  == "key" or "hyp_text" in k:
+                if k == "key" or "hyp_text" in k:
                     continue
                 if k in metric2type.keys():
                     continue
@@ -42,7 +40,7 @@ if __name__ == "__main__":
             row_num += 1
             if row_num > reading_size:
                 print(f"Reading size reached {reading_size}, stop reading.")
-        
+
         for k, v in metric2type.items():
             f.write(f"{k} {v}\n")
     logging.info(f"metric2type: {args.metric2type}")
