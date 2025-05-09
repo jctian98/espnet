@@ -107,32 +107,33 @@ class UniversaBaseFlexibleType(AbsUniversa):
 
         Args:
             input_size (int): Input dimension.
-            metric2id (Dict[str, int]): Metric to ID mapping.
-            vocab_size (Optional[int]): Number of vocabulary.
-            metric_vocab_size (Optional[int]): Number of metric vocabulary.
-            ignore_id (int): Ignore ID.
+            metric2id (Dict[str, int]): Dictionary of metrics and their IDs.
             use_ref_audio (bool): Whether to use reference audio.
             use_ref_text (bool): Whether to use reference text.
-            embedding_size (int): Embedding size.
-            use_normalize (bool): Whether to normalize input features.
-            audio_encoder_type (str): Audio encoder type.
-            audio_encoder_params (Dict[str, Sequence]): Audio encoder parameters.
-            text_encoder_type (str): Text encoder type.
-            text_encoder_params (Dict[str, Sequence]): Text encoder parameters.
-            cross_attention_type (str): Cross attention type.
-            cross_attention_params (Dict[str, Sequence]): Cross attention parameters.
-            pooling_type (str): Pooling type.
-            pooling_params (Dict[str, Sequence]): Pooling parameters.
-            projector_type (str): Projector type.
-            projector_params (Dict[str, Sequence]): Projector parameters.
+            embedding_size (int): Embedding dimension.
+            use_normalize (bool): Whether to use normalization.
+            audio_encoder_type (str): Type of audio encoder.
+            audio_encoder_params (Dict[str, Union[float, int, bool, str]]): Parameters for audio encoder.
+            metric_vocab_size (Optional[int]): Vocabulary size for metrics.
+            metric_token_info (Optional[Dict[str, Any]]): Information for metric tokenization.
+            metric2type (Optional[Dict[str, str]]): Dictionary of metrics and their types.
+            metric_pad_value (float): Padding value for metrics.
+            metric_token_pad_value (int): Padding value for metric tokens.
+            sequential_metrics (bool): Whether to use sequential metrics.
+            vocab_size (Optional[int]): Vocabulary size for text.
+            ignore_id (int): Ignore ID for text.
+            text_encoder_type (str): Type of text encoder.
+            text_encoder_params (Dict[str, Union[float, int, bool, str]]): Parameters for text encoder.
+            cross_attention_type (str): Type of cross attention.
+            cross_attention_params (Dict[str, Union[float, int]]): Parameters for cross attention.
+            pooling_type (str): Type of pooling.
+            pooling_params (Dict[str, Union[float, int, bool, str]]): Parameters for pooling.
+            projector_type (str): Type of projector.
+            projector_params (Dict[str, Union[float, int, bool, str]]): Parameters for projector.
             use_mse (bool): Whether to use MSE loss.
             use_l1 (bool): Whether to use L1 loss.
-            metric_pad_value (float): Metric padding value.
-            metric_token_pad_value (int): Metric token padding value.
-            loss_weights (Optional[Dict[str, float]]): Loss weights.
-            metric2type (Optional[Dict[str, str]]): Metric to type mapping.
-            sequential_metrics (bool): Whether to use sequential metrics.
-            **kwargs: Additional parameters.
+            loss_weights (Optional[Dict[str, float]]): Weights for loss functions.
+            **kwargs: Additional arguments.
 
         """
         super().__init__()
@@ -163,7 +164,9 @@ class UniversaBaseFlexibleType(AbsUniversa):
         ), "At least one loss function should be enabled"
         self.metric_pad_value = metric_pad_value
         self.metric_token_pad_value = metric_token_pad_value
-        self.metric_tokenizer = MetricTokenizer(metric_token_info, tokenize_metric=list(metric2id.keys()))
+        self.metric_tokenizer = MetricTokenizer(
+            metric_token_info, tokenize_metric=list(metric2id.keys())
+        )
 
         if metric2type is None:
             self.id2type = {i: "numerical" for i in self.metric_size}
@@ -235,13 +238,15 @@ class UniversaBaseFlexibleType(AbsUniversa):
         self.pooling = torch.nn.ModuleList()
         self.projector = torch.nn.ModuleList()
         self.category_metrics = []
-        self.category_metrics_dim = {} # {metric_id: metric_dim}
+        self.category_metrics_dim = {}  # {metric_id: metric_dim}
         for i in range(self.metric_size):
             metric_type = self.id2type[i]
             if metric_type == "numerical":
                 projector_dim = 1
             elif metric_type == "categorical":
-                projector_dim = self.metric_tokenizer.metric_offset[self.id2metric[i]][-1] + 1
+                projector_dim = (
+                    self.metric_tokenizer.metric_offset[self.id2metric[i]][-1] + 1
+                )
                 self.category_metrics.append(self.id2metric[i])
                 self.category_metrics_dim[i] = projector_dim
             else:
@@ -351,10 +356,12 @@ class UniversaBaseFlexibleType(AbsUniversa):
             if metric_type == "numerical":
                 final_metric_mask = final_metrics[i] > (self.metric_pad_value + 1e-6)
                 all_invalid = torch.all(final_metric_mask == 0).item()
-                   
+
                 if self.use_mse:
                     if all_invalid:
-                        stats[self.id2metric[i] + "_mse"] = torch.tensor(0.0).to(audio_enc.device)
+                        stats[self.id2metric[i] + "_mse"] = torch.tensor(0.0).to(
+                            audio_enc.device
+                        )
                     else:
                         metric_mse_loss = masked_mse_loss(
                             pred_metric.squeee(-1), final_metrics[i], final_metric_mask
@@ -363,7 +370,9 @@ class UniversaBaseFlexibleType(AbsUniversa):
                         stats[self.id2metric[i] + "_mse"] = metric_mse_loss.detach()
                 if self.use_l1:
                     if all_invalid:
-                        stats[self.id2metric[i] + "_l1"] = torch.tensor(0.0).to(audio_enc.device)
+                        stats[self.id2metric[i] + "_l1"] = torch.tensor(0.0).to(
+                            audio_enc.device
+                        )
                     else:
                         metric_l1_loss = masked_l1_loss(
                             pred_metric.squeeze(-1), final_metrics[i], final_metric_mask
@@ -389,7 +398,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
                     pred_classes = torch.argmax(pred_metric, dim=-1)
 
                     # Calculate accuracy (ignoring padding tokens)
-                    mask = (final_metrics[i] != self.metric_token_pad_value)
+                    mask = final_metrics[i] != self.metric_token_pad_value
                     correct = (pred_classes == final_metrics[i]) & mask
                     metric_acc = correct.sum().float() / mask.sum().float().detach()
                 stats[self.id2metric[i] + "_cross_entropy"] = metric_loss.detach()
@@ -548,11 +557,16 @@ class UniversaBaseFlexibleType(AbsUniversa):
                 # print(pred_metrics[i], flush=True)
                 pred_metrics[i][:, 0] = -1e10
                 category_id = pred_metrics[i].argmax(dim=-1).cpu().numpy()
-                category_vocab = self.metric_tokenizer.add_offset(category_id, metric_name)
+                category_vocab = self.metric_tokenizer.add_offset(
+                    category_id, metric_name
+                )
                 # print(metric_name, category_id, category_vocab, flush=True)
-                category_results = [self.metric_tokenizer.token2metric(token, metric_name) for token in category_vocab]
+                category_results = [
+                    self.metric_tokenizer.token2metric(token, metric_name)
+                    for token in category_vocab
+                ]
                 results[metric_name] = category_results
- 
+
         results["use_tokenizer_metrics"] = self.category_metrics
         results["sequential_metrics"] = False
         return results

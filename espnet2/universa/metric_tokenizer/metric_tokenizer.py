@@ -1,6 +1,6 @@
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, List, Tuple, Union, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from typeguard import typechecked
 
@@ -18,7 +18,9 @@ class AbsMetricTokenizer(ABC):
 
 
 class MetricTokenizer(AbsMetricTokenizer):
-    def __init__(self, tokenizer_config: Union[str, Dict[str, Any]], tokenize_metric: List[str]):
+    def __init__(
+        self, tokenizer_config: Union[str, Dict[str, Any]], tokenize_metric: List[str]
+    ):
         """
         Initialize the MetricTokenizer with a configuration file path.
 
@@ -38,20 +40,51 @@ class MetricTokenizer(AbsMetricTokenizer):
         self.tokenize_metric = tokenize_metric
 
         # Build inverse mapping for faster lookups
-        self.overall_offset = 4 # Offset for the vocab indices
-        self.vocab_indices = {token: idx + self.overall_offset for idx, token in enumerate(self.vocab)}
+        self.overall_offset = 4  # Offset for the vocab indices
+        self.vocab_indices = {
+            token: idx + self.overall_offset for idx, token in enumerate(self.vocab)
+        }
         self.vocab_indices["<pad>"] = 0  # Add padding token index
         self.vocab_indices["<unk>"] = 1  # Add unknown token index
         self.vocab_indices["<eos>"] = 2  # Add end-of-sequence token index
         self.vocab_indices["<sos>"] = 3  # Add start-of-sequence token index
-
+        self.adjusted_vocab = ["<pad>", "<unk>", "<eos>", "<sos>"] + self.vocab
 
         # Extract metric types and their thresholds/categories
         self.metrics = {}
         for metric_name, values in self.tokenizer_config.items():
             self.metrics[metric_name] = values
 
-    def get_token_index(self, metric_name: str, value_index: int, reduce_offset: bool = False) -> Tuple[int, int]:
+    def get_metric_meta_label(self, metric_name: str) -> int:
+        """
+        Get the meta label index for a given metric.
+
+        Args:
+            metric_name: Name of the metric
+
+        Returns:
+            Index of the meta label in the vocabulary
+        """
+        meta_label_token = f"{metric_name}@meta_label"
+        meta_label_index = self.vocab_indices.get(meta_label_token)
+
+        if meta_label_index is None:
+            raise ValueError(f"Invalid token: {meta_label_token}")
+
+        return meta_label_index
+
+    def get_token_list(self) -> List[str]:
+        """
+        Get the list of tokens in the vocabulary.
+
+        Returns:
+            List of tokens
+        """
+        return self.adjusted_vocab
+
+    def get_token_index(
+        self, metric_name: str, value_index: int, reduce_offset: bool = False
+    ) -> Tuple[int, int]:
         """
         Get the token indices for a metric and its value.
 
@@ -109,7 +142,9 @@ class MetricTokenizer(AbsMetricTokenizer):
 
     @typechecked
     def metric2token(
-        self, metrics: Dict[str, Union[float, str, int, Tuple[int, int]]], reduce_offset: bool = False
+        self,
+        metrics: Dict[str, Union[float, str, int, Tuple[int, int]]],
+        reduce_offset: bool = False,
     ) -> Dict[str, Tuple[int, int]]:
         """
         Convert metrics dictionary to token indices.
@@ -143,7 +178,9 @@ class MetricTokenizer(AbsMetricTokenizer):
             value_index = self._get_value_index(metric_name, value)
 
             # Get the token indices for this metric and value
-            token_pair = self.get_token_index(metric_name, value_index, reduce_offset=reduce_offset)
+            token_pair = self.get_token_index(
+                metric_name, value_index, reduce_offset=reduce_offset
+            )
             token_indices[metric_name] = token_pair
 
         return token_indices
@@ -163,6 +200,10 @@ class MetricTokenizer(AbsMetricTokenizer):
             String representation of the metrics
         """
         tokens_list = list(tokens)
+        assert len(tokens_list) > 0, "Token list is empty"
+        if tokens_list[0] == 2:
+            # Remove the first token if it is <sos>
+            tokens_list = tokens_list[1:]
         if len(tokens_list) % 2 != 0:
             raise ValueError(
                 "Expected an even number of tokens (meta_label, value pairs)"
@@ -173,8 +214,8 @@ class MetricTokenizer(AbsMetricTokenizer):
             meta_label_idx = tokens_list[i]
             value_idx = tokens_list[i + 1]
 
-            meta_label = self.vocab[meta_label_idx]
-            value_token = self.vocab[value_idx]
+            meta_label = self.adjusted_vocab[meta_label_idx]
+            value_token = self.adjusted_vocab[value_idx]
 
             assert meta_label.endswith(
                 "@meta_label"
@@ -208,9 +249,11 @@ class MetricTokenizer(AbsMetricTokenizer):
         # Format the result as a string
         formatted_result = ", ".join([f"{k}: {v}" for k, v in result.items()])
         return formatted_result
-    
+
     @typechecked
-    def token2metric(self, token: int, metric: Optional[str] = None) -> Union[float, str]:
+    def token2metric(
+        self, token: int, metric: Optional[str] = None
+    ) -> Union[float, str]:
         """
         Convert a single token index back to its metric representation.
 
@@ -231,14 +274,16 @@ class MetricTokenizer(AbsMetricTokenizer):
         else:
             token_value = int(token_result.split("@")[-1])
             if metric is None:
-                raise ValueError("Metric name must be provided for non-meta_label tokens")
+                raise ValueError(
+                    "Metric name must be provided for non-meta_label tokens"
+                )
             if metric not in self.tokenizer_config.keys():
                 raise ValueError(f"Unknown metric: {metric}")
 
             # NOTE(jiatong): the first token is for padding
-            assert token_value >= 1 and token_value <= len(self.tokenizer_config[metric]), (
-                f"Invalid token value: {token_value} for metric {metric}"
-            )
+            assert token_value >= 1 and token_value <= len(
+                self.tokenizer_config[metric]
+            ), f"Invalid token value: {token_value} for metric {metric}"
             return self.tokenizer_config[metric][token_value - 1]
 
     @typechecked

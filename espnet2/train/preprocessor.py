@@ -2977,11 +2977,16 @@ class UniversaProcessor(AbsPreprocessor):
 
                     metric[key] = float(value)
             else:
-                updated_metric = self.metric_tokenizer.metric2token(metric, reduce_offset=self.reduce_offset)
-                
+                updated_metric = self.metric_tokenizer.metric2token(
+                    metric, reduce_offset=self.reduce_offset
+                )
+
                 if not self.tokenize_numerical_metric:
                     for key, value in metric.items():
-                        if key in self.metric2type.keys() and self.metric2type[key] == "numerical":
+                        if (
+                            key in self.metric2type.keys()
+                            and self.metric2type[key] == "numerical"
+                        ):
                             updated_metric[key] = float(value)
             data["metrics"] = updated_metric
         return data

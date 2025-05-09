@@ -4,7 +4,7 @@
 """Universa ESPnet model definition."""
 
 from contextlib import contextmanager
-from typing import Dict, Optional, Tuple, Union, List
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -188,7 +188,7 @@ class ESPnetUniversaModel(AbsESPnetModel):
                     ref_text=ref_text,
                     ref_text_lengths=ref_text_lengths,
                 )
-            
+
             # Update batch with metrics meta labels
             if metrics_meta_labels is not None:
                 batch.update(
