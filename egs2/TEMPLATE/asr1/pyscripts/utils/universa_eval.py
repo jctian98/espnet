@@ -11,6 +11,7 @@ import sys
 from collections import defaultdict
 from typing import List, Set
 from espnet2.tasks.universa import parse_metrics_meta
+
 # Create confusion matrix
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
@@ -68,10 +69,16 @@ def get_parser():
     return parser
 
 
-def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt", 
-                          sys_info_file=None, skip_missing=False, metric2type=None):
+def evaluate_and_summarize(
+    ref_metrics_file,
+    pred_metrics_file,
+    level="utt",
+    sys_info_file=None,
+    skip_missing=False,
+    metric2type=None,
+):
     """Evaluate metrics and provide summaries of regression and classification results.
-    
+
     Args:
         ref_metrics_file: Path to reference metrics file
         pred_metrics_file: Path to prediction metrics file
@@ -79,7 +86,7 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
         sys_info_file: Path to system information file
         skip_missing: Whether to skip missing utterances
         metric2type: Dictionary mapping metric names to types
-        
+
     Returns:
         Dictionary with evaluation results and summaries
     """
@@ -90,17 +97,17 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
     pred_metrics, metric_names = load_metrics(
         pred_metrics_file, detect_metric_names=True
     )
-    
+
     # Set default metric types if not provided
     if metric2type is None:
         metric2type = {metric_name: "numerical" for metric_name in metric_names}
-    
+
     # Load system information if provided
     sys_info = load_sys_info(sys_info_file) if sys_info_file else None
     assert (
         sys_info is not None or level == "utt"
     ), "System information is required for system-level evaluation"
-    
+
     # Evaluate all metrics
     final_result = {}
     for metric in metric_names:
@@ -116,7 +123,7 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
             pred_metric, ref_metric = [], []
         else:
             pred_metric, ref_metric = {}, {}
-            
+
         # Collect metric values
         for utt in pred_metrics.keys():
             # Check for missing utterances and metrics
@@ -133,7 +140,7 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
                     metric_count["miss_part_ref"] += 1
                     continue
                 raise ValueError(f"Missing metric: {metric} in reference metric.scp")
-                
+
             # Store metric values
             if level == "utt":
                 pred_metric.append(pred_metrics[utt][metric])
@@ -145,13 +152,13 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
                     ref_metric[sys_id] = []
                 pred_metric[sys_id].append(pred_metrics[utt][metric])
                 ref_metric[sys_id].append(ref_metrics[utt][metric])
-        
+
         # Skip metrics with no data
         if level == "utt" and len(pred_metric) == 0:
             continue
         elif level != "utt" and len(pred_metric) == 0:
             continue
-            
+
         # Calculate metrics
         if level == "utt":
             if metric2type[metric] == "numerical":
@@ -180,18 +187,18 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
                 eval_results = calculate_system_classification_metrics(
                     ref_metric, pred_metric, metric, prefix="sys"
                 )
-                
+
         # Add to final results
         final_result.update(eval_results)
-    
+
     # Convert all values to float
     for key in final_result.keys():
         final_result[key] = float(final_result[key])
-        
+
     # Calculate summaries
     summaries = summarize_metrics(final_result, skip_nan=True)
     final_result.update(summaries)
-    
+
     return final_result
 
     # print(f"{metric}: {value:.4f}")
@@ -199,39 +206,50 @@ def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt",
 
 def summarize_metrics(results, skip_nan=True):
     """Summarize evaluation results by averaging metrics of the same type.
-    
+
     Args:
         results: Dictionary containing evaluation results
         skip_nan: Whether to skip NaN values when calculating means
-        
+
     Returns:
         Dictionary with summarized metrics for regression and classification
     """
     regression_metrics = defaultdict(list)
     classification_metrics = defaultdict(list)
-    
+
     # Identify metric types and collect values
     for key, value in results.items():
         # Skip confusion matrices and class lists
         if "confusion_matrix" in key or "classes" in key:
             continue
-            
+
         # Skip NaN values if requested
         if skip_nan and (value is None or np.isnan(value)):
             continue
-            
+
         # Determine if regression or classification metric
         metric_type = None
         base_metric = None
-        
+
         # Regression metrics
-        for metric in ["mse", "rmse", "mae", "lcc", "srcc", "ktau", "r2", 
-                      "min_abs_error", "max_abs_error", "mean_abs_error", "std_abs_error"]:
+        for metric in [
+            "mse",
+            "rmse",
+            "mae",
+            "lcc",
+            "srcc",
+            "ktau",
+            "r2",
+            "min_abs_error",
+            "max_abs_error",
+            "mean_abs_error",
+            "std_abs_error",
+        ]:
             if key.endswith(f"_{metric}") or f"_{metric}_" in key:
                 metric_type = "regression"
                 base_metric = metric
                 break
-                
+
         # Classification metrics
         if metric_type is None:
             for metric in ["accuracy", "precision", "recall", "f1"]:
@@ -239,42 +257,44 @@ def summarize_metrics(results, skip_nan=True):
                     metric_type = "classification"
                     base_metric = metric
                     break
-        
+
         # Skip metrics that couldn't be categorized
         if metric_type is None or base_metric is None:
             continue
-            
+
         # Store in appropriate collection
         if metric_type == "regression":
             regression_metrics[base_metric].append(value)
         else:
             classification_metrics[base_metric].append(value)
-    
+
     # Calculate means
     regression_summary = {
-        f"mean_{metric}": np.mean(values) 
-        for metric, values in regression_metrics.items() if values
+        f"mean_{metric}": np.mean(values)
+        for metric, values in regression_metrics.items()
+        if values
     }
-    
+
     classification_summary = {
-        f"mean_{metric}": np.mean(values) 
-        for metric, values in classification_metrics.items() if values
+        f"mean_{metric}": np.mean(values)
+        for metric, values in classification_metrics.items()
+        if values
     }
-    
+
     return {
         "regression_summary": regression_summary,
-        "classification_summary": classification_summary
+        "classification_summary": classification_summary,
     }
 
 
 def calculate_regression_metrics(ref_metric_scores, pred_metric_scores, prefix="utt"):
     """Calculate comprehensive metrics for numerical predictions/scores.
-    
+
     Args:
         ref_metric_scores: List/array of reference/ground truth scores (numerical)
         pred_metric_scores: List/array of predicted scores (numerical)
         prefix: Prefix for the metric names in the output dictionary
-        
+
     Returns:
         Dictionary containing regression evaluation metrics
     """
@@ -282,51 +302,53 @@ def calculate_regression_metrics(ref_metric_scores, pred_metric_scores, prefix="
         raise ValueError(
             f"Number of samples mismatch: {len(ref_metric_scores)} != {len(pred_metric_scores)}"
         )
-    
+
     # Convert inputs to numpy arrays if they aren't already
     ref_metric_scores = np.array(ref_metric_scores, dtype=float)
     pred_metric_scores = np.array(pred_metric_scores, dtype=float)
-    
+
     # Check for NaN values
     if np.isnan(ref_metric_scores).any():
         raise ValueError("Input reference arrays contain NaN values")
     if np.isnan(pred_metric_scores).any():
         raise ValueError("Input prediction arrays contain NaN values")
-    
+
     # Basic error metrics
     mse = mean_squared_error(ref_metric_scores, pred_metric_scores)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(ref_metric_scores, pred_metric_scores)
-    
+
     # Correlation metrics
     # Handle potential errors with correlation calculations
     try:
         lcc = np.corrcoef(ref_metric_scores, pred_metric_scores)[0, 1]
     except:
         lcc = np.nan
-    
+
     try:
         srcc, srcc_pvalue = scipy.stats.spearmanr(ref_metric_scores, pred_metric_scores)
     except:
         srcc = np.nan
         srcc_pvalue = np.nan
-    
+
     try:
-        ktau, ktau_pvalue = scipy.stats.kendalltau(ref_metric_scores, pred_metric_scores)
+        ktau, ktau_pvalue = scipy.stats.kendalltau(
+            ref_metric_scores, pred_metric_scores
+        )
     except:
         ktau = np.nan
         ktau_pvalue = np.nan
-    
+
     # Goodness of fit
     r2 = r2_score(ref_metric_scores, pred_metric_scores)
-    
+
     # Calculate min, max, mean errors
     abs_errors = np.abs(ref_metric_scores - pred_metric_scores)
     min_abs_error = np.min(abs_errors)
     max_abs_error = np.max(abs_errors)
     mean_abs_error = np.mean(abs_errors)
     std_abs_error = np.std(abs_errors)
-    
+
     return {
         f"{prefix}_mse": mse,
         f"{prefix}_rmse": rmse,
@@ -346,12 +368,12 @@ def calculate_regression_metrics(ref_metric_scores, pred_metric_scores, prefix="
 
 def calculate_classification_metrics(ref_classes, pred_classes, prefix="cls"):
     """Calculate classification-level metrics for string labels.
-    
+
     Args:
         ref_classes: List of reference/ground truth class labels (strings)
         pred_classes: List of predicted class labels (strings)
         prefix: Prefix for the metric names in the output dictionary
-        
+
     Returns:
         Dictionary containing classification metrics
     """
@@ -359,26 +381,36 @@ def calculate_classification_metrics(ref_classes, pred_classes, prefix="cls"):
         raise ValueError(
             f"Number of samples mismatch: {len(ref_classes)} != {len(pred_classes)}"
         )
-    
+
     # Accuracy
     correct = sum(1 for r, p in zip(ref_classes, pred_classes) if r == p)
     accuracy = correct / len(ref_classes)
-    
+
     # Get unique classes from both lists
     unique_classes = sorted(set(ref_classes + pred_classes))
-    
+
     # cm = confusion_matrix(ref_classes, pred_classes, labels=unique_classes)
-    
+
     # Calculate precision, recall, and F1 score
     precision, recall, f1, _ = precision_recall_fscore_support(
-        ref_classes, pred_classes, average='macro', labels=unique_classes, zero_division=0
+        ref_classes,
+        pred_classes,
+        average="macro",
+        labels=unique_classes,
+        zero_division=0,
     )
-    
+
     # Calculate weighted versions
-    precision_weighted, recall_weighted, f1_weighted, _ = precision_recall_fscore_support(
-        ref_classes, pred_classes, average='weighted', labels=unique_classes, zero_division=0
+    precision_weighted, recall_weighted, f1_weighted, _ = (
+        precision_recall_fscore_support(
+            ref_classes,
+            pred_classes,
+            average="weighted",
+            labels=unique_classes,
+            zero_division=0,
+        )
     )
-    
+
     return {
         f"{prefix}_accuracy": accuracy,
         f"{prefix}_precision_macro": precision,
@@ -392,98 +424,117 @@ def calculate_classification_metrics(ref_classes, pred_classes, prefix="cls"):
     }
 
 
-def calculate_system_classification_metrics(ref_metric, pred_metric, metric, prefix="sys"):
+def calculate_system_classification_metrics(
+    ref_metric, pred_metric, metric, prefix="sys"
+):
     """Calculate system-level metrics for classification tasks.
-    
+
     Args:
         ref_metric: Dictionary mapping system IDs to lists of reference class labels
         pred_metric: Dictionary mapping system IDs to lists of predicted class labels
         metric: The name of the metric being evaluated
         prefix: Prefix for the metric names in the output dictionary
-        
+
     Returns:
         Dictionary containing system-level classification metrics
     """
     # Collect all reference and prediction classes across systems
     all_ref_classes = []
     all_pred_classes = []
-    
+
     # Create system-level confusion matrices
     system_accuracies = []
     system_f1_scores = []
     system_precisions = []
     system_recalls = []
-    
+
     # Process each system
     for sys_id in pred_metric.keys():
         sys_pred_classes = pred_metric[sys_id]
         sys_ref_classes = ref_metric[sys_id]
-        
+
         # Add to the overall collection
         all_ref_classes.extend(sys_ref_classes)
         all_pred_classes.extend(sys_pred_classes)
-        
+
         # Calculate per-system metrics
-        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-        
+        from sklearn.metrics import (
+            accuracy_score,
+            f1_score,
+            precision_score,
+            recall_score,
+        )
+
         # System accuracy
         sys_accuracy = accuracy_score(sys_ref_classes, sys_pred_classes)
         system_accuracies.append(sys_accuracy)
-        
+
         # System F1 (macro)
         try:
-            sys_f1 = f1_score(sys_ref_classes, sys_pred_classes, average='macro', zero_division=0)
+            sys_f1 = f1_score(
+                sys_ref_classes, sys_pred_classes, average="macro", zero_division=0
+            )
             system_f1_scores.append(sys_f1)
         except:
             system_f1_scores.append(np.nan)
-            
+
         # System precision & recall
         try:
-            sys_precision = precision_score(sys_ref_classes, sys_pred_classes, average='macro', zero_division=0)
+            sys_precision = precision_score(
+                sys_ref_classes, sys_pred_classes, average="macro", zero_division=0
+            )
             system_precisions.append(sys_precision)
         except:
             system_precisions.append(np.nan)
-            
+
         try:
-            sys_recall = recall_score(sys_ref_classes, sys_pred_classes, average='macro', zero_division=0)
+            sys_recall = recall_score(
+                sys_ref_classes, sys_pred_classes, average="macro", zero_division=0
+            )
             system_recalls.append(sys_recall)
         except:
             system_recalls.append(np.nan)
-    
+
     # Overall metrics across all systems
     overall_accuracy = accuracy_score(all_ref_classes, all_pred_classes)
-    
+
     try:
-        overall_f1 = f1_score(all_ref_classes, all_pred_classes, average='macro', zero_division=0)
-        overall_precision = precision_score(all_ref_classes, all_pred_classes, average='macro', zero_division=0)
-        overall_recall = recall_score(all_ref_classes, all_pred_classes, average='macro', zero_division=0)
+        overall_f1 = f1_score(
+            all_ref_classes, all_pred_classes, average="macro", zero_division=0
+        )
+        overall_precision = precision_score(
+            all_ref_classes, all_pred_classes, average="macro", zero_division=0
+        )
+        overall_recall = recall_score(
+            all_ref_classes, all_pred_classes, average="macro", zero_division=0
+        )
     except:
         overall_f1 = np.nan
         overall_precision = np.nan
         overall_recall = np.nan
-    
+
     # Get unique classes
     unique_classes = sorted(set(all_ref_classes + all_pred_classes))
-    
+
     # Create overall confusion matrix
     # try:
     #     cm = confusion_matrix(all_ref_classes, all_pred_classes, labels=unique_classes)
     # except:
     #     cm = None
-    
+
     # Calculate mean and std of system-level metrics
     mean_system_accuracy = np.mean(system_accuracies)
     std_system_accuracy = np.std(system_accuracies)
-    
+
     mean_system_f1 = np.mean(system_f1_scores)
     std_system_f1 = np.std(system_f1_scores)
-    
+
     mean_system_precision = np.mean(system_precisions)
     std_system_precision = np.std(system_precisions)
-    
+
     mean_system_recall = np.mean(system_recalls)
     std_system_recall = np.std(system_recalls)
-    
+
     return {
         f"{prefix}_{metric}_overall_accuracy": overall_accuracy,
         f"{prefix}_{metric}_overall_f1": overall_f1,
@@ -530,7 +581,9 @@ def load_metrics(metrics_file, detect_metric_names=False):
                 # utt2metrics[utt] = json.loads(metrics.replace("'", '"').replace("inf", "0"))
                 utt2metrics[utt] = json.loads(metrics)
             except:
-                raise ValueError("original line: {}, {}".format(line, metrics.replace("'", '"')))
+                raise ValueError(
+                    "original line: {}, {}".format(line, metrics.replace("'", '"'))
+                )
             if detect_metric_names:
                 metric_names = set(utt2metrics[utt].keys())
                 metric_names.update(metric_names)
@@ -550,7 +603,7 @@ if __name__ == "__main__":
         metric2type = {metric_name: "numerical" for metric_name in metric_names}
     else:
         metric2type = parse_metrics_meta(args.metric2type)
- 
+
     sys_info = load_sys_info(args.sys_info) if args.sys_info else None
     assert (
         sys_info is not None or args.level == "utt"
@@ -602,7 +655,9 @@ if __name__ == "__main__":
                         ref_metric, pred_metric, prefix="utt_{}".format(metric)
                     )
                 except Exception as e:
-                    logging.warning("Skip processing metric {} due to {}".format(metric, e))
+                    logging.warning(
+                        "Skip processing metric {} due to {}".format(metric, e)
+                    )
                     eval_results = {}
             else:
                 try:
@@ -610,7 +665,9 @@ if __name__ == "__main__":
                         ref_metric, pred_metric, prefix="utt_{}".format(metric)
                     )
                 except Exception as e:
-                    logging.warning("Skip processing metric {} due to {}".format(metric, e))
+                    logging.warning(
+                        "Skip processing metric {} due to {}".format(metric, e)
+                    )
                     eval_results = {}
         else:
             if metric2type[metric] == "numerical":

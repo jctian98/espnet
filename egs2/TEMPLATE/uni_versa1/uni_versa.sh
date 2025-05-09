@@ -901,7 +901,7 @@ if ! "${skip_eval}"; then
                 --out_file "${_dir}/utt_result.json" ${_opts}
 
             log "Utterance-level evaluation results are as follows:"
-            cat "${_dir}/utt_result.json"
+            # cat "${_dir}/utt_result.json"
 
             if [ -n "${sys_info}" ]; then
                 log "Perform system-level evaluation using ${sys_info}, results are written in ${_dir}/sys_result.json"
@@ -914,7 +914,7 @@ if ! "${skip_eval}"; then
                     --out_file "${_dir}/sys_result.json" ${_opts}
 
                 log "System-level evaluation results are as follows:"
-                cat "${_dir}/sys_result.json"
+                # cat "${_dir}/sys_result.json"
             fi
 
         done
