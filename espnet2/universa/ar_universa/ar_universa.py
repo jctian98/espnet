@@ -482,6 +482,12 @@ class ARUniversa(AbsUniversa):
         # NOTE(jiatong): currently only support greedy search
         return 
 
+    
+    @typechecked
+    def greedy_search(self):
+        
+        return 
+
     @typechecked
     def _inference_decoration(
         self,
