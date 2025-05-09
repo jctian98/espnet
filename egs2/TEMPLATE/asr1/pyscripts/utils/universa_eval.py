@@ -68,6 +68,205 @@ def get_parser():
     return parser
 
 
+def evaluate_and_summarize(ref_metrics_file, pred_metrics_file, level="utt", 
+                          sys_info_file=None, skip_missing=False, metric2type=None):
+    """Evaluate metrics and provide summaries of regression and classification results.
+    
+    Args:
+        ref_metrics_file: Path to reference metrics file
+        pred_metrics_file: Path to prediction metrics file
+        level: Evaluation level ('utt' or 'sys')
+        sys_info_file: Path to system information file
+        skip_missing: Whether to skip missing utterances
+        metric2type: Dictionary mapping metric names to types
+        
+    Returns:
+        Dictionary with evaluation results and summaries
+    """
+    # Load metrics
+    ref_metrics, ref_metric_names = load_metrics(
+        ref_metrics_file, detect_metric_names=True
+    )
+    pred_metrics, metric_names = load_metrics(
+        pred_metrics_file, detect_metric_names=True
+    )
+    
+    # Set default metric types if not provided
+    if metric2type is None:
+        metric2type = {metric_name: "numerical" for metric_name in metric_names}
+    
+    # Load system information if provided
+    sys_info = load_sys_info(sys_info_file) if sys_info_file else None
+    assert (
+        sys_info is not None or level == "utt"
+    ), "System information is required for system-level evaluation"
+    
+    # Evaluate all metrics
+    final_result = {}
+    for metric in metric_names:
+        metric_count = {
+            "miss_all": 0,
+            "miss_part_ref": 0,
+            "miss_part_pred": 0,
+            "match": 0,
+        }
+        if metric not in ref_metric_names:
+            metric_count["miss_all"] += 1
+        if level == "utt":
+            pred_metric, ref_metric = [], []
+        else:
+            pred_metric, ref_metric = {}, {}
+            
+        # Collect metric values
+        for utt in pred_metrics.keys():
+            # Check for missing utterances and metrics
+            if utt not in ref_metrics.keys():
+                metric_count["miss_part_ref"] += 1
+                continue
+            if metric not in pred_metrics[utt]:
+                if skip_missing:
+                    metric_count["miss_part_pred"] += 1
+                    continue
+                raise ValueError(f"Missing metric: {metric} in prediction metric.scp")
+            if metric not in ref_metrics[utt]:
+                if skip_missing:
+                    metric_count["miss_part_ref"] += 1
+                    continue
+                raise ValueError(f"Missing metric: {metric} in reference metric.scp")
+                
+            # Store metric values
+            if level == "utt":
+                pred_metric.append(pred_metrics[utt][metric])
+                ref_metric.append(ref_metrics[utt][metric])
+            else:
+                sys_id = sys_info[utt]
+                if sys_id not in pred_metric:
+                    pred_metric[sys_id] = []
+                    ref_metric[sys_id] = []
+                pred_metric[sys_id].append(pred_metrics[utt][metric])
+                ref_metric[sys_id].append(ref_metrics[utt][metric])
+        
+        # Skip metrics with no data
+        if level == "utt" and len(pred_metric) == 0:
+            continue
+        elif level != "utt" and len(pred_metric) == 0:
+            continue
+            
+        # Calculate metrics
+        if level == "utt":
+            if metric2type[metric] == "numerical":
+                eval_results = calculate_regression_metrics(
+                    ref_metric, pred_metric, prefix=f"utt_{metric}"
+                )
+            else:
+                eval_results = calculate_classification_metrics(
+                    ref_metric, pred_metric, prefix=f"utt_{metric}"
+                )
+        else:
+            if metric2type[metric] == "numerical":
+                pred_sys_avg = []
+                ref_sys_avg = []
+                for sys_id in pred_metric.keys():
+                    sys_pred_metrics = np.array(pred_metric[sys_id])
+                    sys_ref_metrics = np.array(ref_metric[sys_id])
+                    sys_pred_avg = np.mean(sys_pred_metrics)
+                    sys_ref_avg = np.mean(sys_ref_metrics)
+                    pred_sys_avg.append(sys_pred_avg)
+                    ref_sys_avg.append(sys_ref_avg)
+                eval_results = calculate_regression_metrics(
+                    ref_sys_avg, pred_sys_avg, prefix=f"sys_{metric}"
+                )
+            elif metric2type[metric] == "classification":
+                eval_results = calculate_system_classification_metrics(
+                    ref_metric, pred_metric, metric, prefix="sys"
+                )
+                
+        # Add to final results
+        final_result.update(eval_results)
+    
+    # Convert all values to float
+    for key in final_result.keys():
+        final_result[key] = float(final_result[key])
+        
+    # Calculate summaries
+    summaries = summarize_metrics(final_result, skip_nan=True)
+    final_result.update(summaries)
+    
+    return final_result
+
+    # print(f"{metric}: {value:.4f}")
+
+
+def summarize_metrics(results, skip_nan=True):
+    """Summarize evaluation results by averaging metrics of the same type.
+    
+    Args:
+        results: Dictionary containing evaluation results
+        skip_nan: Whether to skip NaN values when calculating means
+        
+    Returns:
+        Dictionary with summarized metrics for regression and classification
+    """
+    regression_metrics = defaultdict(list)
+    classification_metrics = defaultdict(list)
+    
+    # Identify metric types and collect values
+    for key, value in results.items():
+        # Skip confusion matrices and class lists
+        if "confusion_matrix" in key or "classes" in key:
+            continue
+            
+        # Skip NaN values if requested
+        if skip_nan and (value is None or np.isnan(value)):
+            continue
+            
+        # Determine if regression or classification metric
+        metric_type = None
+        base_metric = None
+        
+        # Regression metrics
+        for metric in ["mse", "rmse", "mae", "lcc", "srcc", "ktau", "r2", 
+                      "min_abs_error", "max_abs_error", "mean_abs_error", "std_abs_error"]:
+            if key.endswith(f"_{metric}") or f"_{metric}_" in key:
+                metric_type = "regression"
+                base_metric = metric
+                break
+                
+        # Classification metrics
+        if metric_type is None:
+            for metric in ["accuracy", "precision", "recall", "f1"]:
+                if key.endswith(f"_{metric}") or f"_{metric}_" in key:
+                    metric_type = "classification"
+                    base_metric = metric
+                    break
+        
+        # Skip metrics that couldn't be categorized
+        if metric_type is None or base_metric is None:
+            continue
+            
+        # Store in appropriate collection
+        if metric_type == "regression":
+            regression_metrics[base_metric].append(value)
+        else:
+            classification_metrics[base_metric].append(value)
+    
+    # Calculate means
+    regression_summary = {
+        f"mean_{metric}": np.mean(values) 
+        for metric, values in regression_metrics.items() if values
+    }
+    
+    classification_summary = {
+        f"mean_{metric}": np.mean(values) 
+        for metric, values in classification_metrics.items() if values
+    }
+    
+    return {
+        "regression_summary": regression_summary,
+        "classification_summary": classification_summary
+    }
+
+
 def calculate_regression_metrics(ref_metric_scores, pred_metric_scores, prefix="utt"):
     """Calculate comprehensive metrics for numerical predictions/scores.
     
@@ -357,8 +556,8 @@ if __name__ == "__main__":
         sys_info is not None or args.level == "utt"
     ), "System information is required for system-level evaluation"
     final_result = {}
-    # for metric in metric_names:
-    for metric in ["pysepm_fwsegsnr"]:
+
+    for metric in metric_names:
         metric_count = {
             "miss_all": 0,
             "miss_part_ref": 0,
@@ -398,15 +597,21 @@ if __name__ == "__main__":
 
         if args.level == "utt":
             if metric2type[metric] == "numerical":
-                print(ref_metric, "--" * 100, flush=True)
-                print(pred_metric, "--" * 100, flush=True)
-                eval_results = calculate_regression_metrics(
-                    ref_metric, pred_metric, prefix="utt_{}".format(metric)
-                )
+                try:
+                    eval_results = calculate_regression_metrics(
+                        ref_metric, pred_metric, prefix="utt_{}".format(metric)
+                    )
+                except Exception as e:
+                    logging.warning("Skip processing metric {} due to {}".format(metric, e))
+                    eval_results = {}
             else:
-                eval_results = calculate_classification_metrics(
-                    ref_metric, pred_metric, prefix="utt_{}".format(metric)
-                )
+                try:
+                    eval_results = calculate_classification_metrics(
+                        ref_metric, pred_metric, prefix="utt_{}".format(metric)
+                    )
+                except Exception as e:
+                    logging.warning("Skip processing metric {} due to {}".format(metric, e))
+                    eval_results = {}
         else:
             if metric2type[metric] == "numerical":
                 pred_sys_avg = []
@@ -429,8 +634,12 @@ if __name__ == "__main__":
         final_result.update(eval_results)
     for key in final_result.keys():
         final_result[key] = float(final_result[key])
+
+    summary_result = summarize_metrics(final_result)
     with open(args.out_file, "w") as f:
         json.dump(final_result, f, indent=4)
+    with open(args.out_file + ".summary", "w") as f:
+        json.dump(summary_result, f, indent=4)
     logging.info(f"Results saved to {args.out_file}")
 
 # Example usage:
