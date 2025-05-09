@@ -188,7 +188,7 @@ class MetricTokenizer(AbsMetricTokenizer):
     @typechecked
     def tokenseq2metric(
         self, tokens: Iterable[int], return_dict: bool = False
-    ) -> Union[str, Dict[str, Union[float, int, str, Tuple[float, float]]]]:
+    ) -> Union[str, Dict[str, List[Union[float, int, str, Tuple[float, float]]]]]:
         """
         Convert token indices back to a metric representation.
 
@@ -224,25 +224,29 @@ class MetricTokenizer(AbsMetricTokenizer):
             metric_name = meta_label.split("@meta_label")[0]
 
             # Extract value index from value token
-            value_index = int(value_token.split("@")[-1])
+            value_index = (
+                int(value_token.split("@")[-1]) - 1
+            )  # NOTE(jiatong): -1 for padding
+            assert (
+                value_index >= 0
+            ), f"Invalid value index: {value_index} for token {value_token}"
 
             if metric_name not in self.tokenizer_config.keys():
                 raise ValueError(f"Unknown metric in decoding: {metric_name}")
 
             # For category, get the actual category value
             if metric_name == "category":
-                result[metric_name] = self.tokenizer_config[metric_name][value_index]
+                result[metric_name] = [self.tokenizer_config[metric_name][value_index]]
             else:
                 # For numerical metrics, represent as ranges
                 thresholds = self.tokenizer_config[metric_name]
                 if value_index == 0:
-                    result[metric_name] = f"<{thresholds[0]}"
+                    result[metric_name] = [thresholds[0]]
                 elif value_index == len(thresholds):
-                    result[metric_name] = f">={thresholds[-1]}"
+                    result[metric_name] = [thresholds[-1]]
                 else:
-                    result[metric_name] = (
-                        f"[{thresholds[value_index-1]}, {thresholds[value_index]})"
-                    )
+                    # result[metric_name] = [(thresholds[value_index-1] + thresholds[value_index]) / 2.0]
+                    result[metric_name] = [thresholds[value_index - 1]]
 
         if return_dict:
             return result

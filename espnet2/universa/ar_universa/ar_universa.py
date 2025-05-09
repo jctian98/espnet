@@ -486,6 +486,27 @@ class ARUniversa(AbsUniversa):
         }
         weights = {"metric_decoder": 1.0}
 
+        # NOTE(jiatong): add the metric token offset for beam search, this masking is used for pre-beam pruning
+        beam_masking = {}
+        for metric_name in self.metric_tokenizer.metric_offset.keys():
+            metric_token = self.metric_tokenizer.vocab_indices[
+                "{}@meta_label".format(metric_name)
+            ]
+            start_idx, num_idx = self.metric_tokenizer.metric_offset[metric_name]
+            # +2 to skip the meta label token and padding token
+            start_idx = start_idx + self.metric_tokenizer.overall_offset + 2
+            end_idx = start_idx + (num_idx - 2)
+            beam_masking[metric_token] = (start_idx, end_idx)
+
+        print(
+            beam_masking,
+            [
+                self.metric_tokenizer.get_metric_meta_label(metric)
+                for metric in metric_list
+            ],
+            flush=True,
+        )
+
         self.search_module = ARUniVERSABeamSearch(
             scorers=scorers,
             weights=weights,
@@ -499,6 +520,7 @@ class ARUniversa(AbsUniversa):
             ],
             token_list=self.metric_tokenizer.get_token_list(),
             extend_without_scorer=extend_without_scorer,
+            beam_masking=beam_masking,
         )
 
     @typechecked
@@ -554,7 +576,6 @@ class ARUniversa(AbsUniversa):
                 "Inference module is not set. Please call set_inference() first."
             )
         nbest_hyps = self.search_module.forward(audio_enc[0])
-
 
         # NOTE(jiatong): get the top one hypothesis
         assert len(nbest_hyps) > 0, "nbest_hyps should not be empty"

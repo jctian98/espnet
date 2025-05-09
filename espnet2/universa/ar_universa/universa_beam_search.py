@@ -56,6 +56,7 @@ class ARUniVERSABeamSearch:
         meta_label_for_search: List[int],
         token_list: List[str] = None,
         extend_without_scorer: bool = False,
+        beam_masking: Dict[int, Tuple[int, int]] = None,
     ):
         """Initialize beam search.
 
@@ -80,6 +81,7 @@ class ARUniVERSABeamSearch:
         self.weights = weights
         self.meta_label_for_search = meta_label_for_search
         self.extend_without_scorer = extend_without_scorer
+        self.beam_masking = beam_masking
         self.scorers = dict()
 
         # this module dict is required for recursive cast
@@ -292,7 +294,7 @@ class ARUniVERSABeamSearch:
         """
         best_hyps = []
         extended_running_hyps = []
-        part_ids = torch.arange(self.n_vocab, device=x.device)
+
         for hyp in running_hyps:
             extended_running_hyps.extend(
                 self.extend(running_hyps, x, hyp.unused_meta_label_ids)
@@ -307,7 +309,16 @@ class ARUniVERSABeamSearch:
             # add previous hyp score
             weighted_scores += hyp.score
 
-            # TODO(jiatong): use part ids with metric token range to reduce noise
+            # NOTE(jiatong): conduct pre-beam with value tokens based on metric meta label ids
+            if self.beam_masking is None:
+                part_ids = torch.arange(self.n_vocab, device=x.device)
+            else:
+                token_range = self.beam_masking.get(int(hyp.yseq[-1]), None)
+                if token_range is None:
+                    part_ids = torch.arange(self.n_vocab, device=x.device)
+                else:
+                    start_idx, end_idx = token_range
+                    part_ids = torch.arange(start_idx, end_idx, device=x.device)
 
             # update hyps
             for j in self.beam(weighted_scores, part_ids):

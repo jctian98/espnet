@@ -298,7 +298,7 @@ def main():
             if wavpath is None:
                 fnum_samples.write(f"{uttid} 8000\n")
                 continue
- 
+
             if args.fs is not None and args.fs != rate:
                 # FIXME(kamo): To use sox?
                 wave = resampy.resample(wave, rate, args.fs, axis=0)
