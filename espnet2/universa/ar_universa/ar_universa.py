@@ -585,7 +585,7 @@ class ARUniversa(AbsUniversa):
         )
 
         if self.save_token_seq:
-            pred_metrics["token_seq"] = list(nbest_hyps[0].yseq)
+            pred_metrics["token_seq"] = [[int(token) for token in nbest_hyps[0].yseq]]
 
         pred_metrics["use_tokenizer_metrics"] = True
         pred_metrics["sequential_metrics"] = True

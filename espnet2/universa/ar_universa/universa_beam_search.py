@@ -173,7 +173,7 @@ class ARUniVERSABeamSearch:
 
     @typechecked
     def beam(
-        self, weighted_scores: torch.Tensor, ids: torch.Tensor
+        self, weighted_scores: torch.Tensor, ids: torch.Tensor, use_id_size: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute topk full token ids and partial token ids.
 
@@ -181,6 +181,8 @@ class ARUniVERSABeamSearch:
             weighted_scores (torch.Tensor): The weighted sum scores for each tokens.
             Its shape is `(self.n_vocab,)`.
             ids (torch.Tensor): The partial token ids to compute topk
+            use_id_size (bool): Whether to use the size of ids for topk.
+                If True, the topk will be computed based on the size of ids.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]:
@@ -188,17 +190,18 @@ class ARUniVERSABeamSearch:
                 Their shapes are `(self.beam_size,)`
 
         """
+        local_beam_size = self.beam_size if not use_id_size else ids.size(0)
         # no pre beam performed
         if weighted_scores.size(0) == ids.size(0):
-            top_ids = weighted_scores.topk(self.beam_size)[1]
+            top_ids = weighted_scores.topk(local_beam_size)[1]
             return top_ids, top_ids
 
         # mask pruned in pre-beam not to select in topk
         tmp = weighted_scores[ids]
         weighted_scores[:] = -float("inf")
         weighted_scores[ids] = tmp
-        top_ids = weighted_scores.topk(self.beam_size)[1]
-        local_ids = weighted_scores[ids].topk(self.beam_size)[1]
+        top_ids = weighted_scores.topk(local_beam_size)[1]
+        local_ids = weighted_scores[ids].topk(local_beam_size)[1]
         return top_ids, local_ids
 
     @staticmethod
@@ -248,6 +251,10 @@ class ARUniVERSABeamSearch:
                 weighted_scores = torch.zeros(
                     self.n_vocab, dtype=x.dtype, device=x.device
                 )
+                scores, states = self.score(hyp, x)
+                for k in self.scorers:
+                    scores[k] = torch.zeros_like(scores[k])
+                use_id_size = True
             else:
                 # scoring
                 weighted_scores = torch.zeros(
@@ -259,9 +266,10 @@ class ARUniVERSABeamSearch:
 
                 # add previous hyp score
                 weighted_scores += hyp.score
+                use_id_size = False
 
             # update hyps
-            for j, _ in zip(*self.beam(weighted_scores, part_ids)):
+            for j, _ in zip(*self.beam(weighted_scores, part_ids, use_id_size)):
                 j = int(j)
                 # will be (2 x beam at most)
                 extended_hyps.append(
@@ -321,7 +329,7 @@ class ARUniVERSABeamSearch:
                     part_ids = torch.arange(start_idx, end_idx, device=x.device)
 
             # update hyps
-            for j in self.beam(weighted_scores, part_ids):
+            for j, _ in zip(*self.beam(weighted_scores, part_ids)):
                 j = int(j)
                 # will be (2 x beam at most)
                 best_hyps.append(
