@@ -13,58 +13,52 @@ import vertexai
 from functools import partial
 from pathlib import Path
 from vertexai.generative_models import GenerativeModel, GenerationConfig
+from espnet2.speechlm.dialogue.dialogue_format import Dialogue, DialogueDataset
+from espnet2.utils.types import str2bool
 
-# prompt = """
-# You are a text-to-speech formatting assistant. Your task is to convert input text into a natural, conversational style suitable for speech synthesis. Follow these guidelines carefully:
-
-# 1. ASSESSMENT: First determine if the text already sounds natural for speaking. If it does, return it unchanged.
-
-# 2. LENGTH LIMIT: Ensure the output contains no more than 70 tokens. If longer, condense while preserving the core meaning.
-
-# 3. FORMATTING CLEANUP: Remove all XML tags (like <tags>), formatting markers, and metadata. Keep only the essential spoken content.
-
-# 4. SYMBOL CONVERSION: Replace symbolic representations with their spoken equivalents:
-#    - "$100" → "one hundred dollars"
-#    - "%" → "percent"
-#    - "&" → "and"
-#    - Numbers, dates, times in natural spoken form
-
-# 5. CONVERSATIONAL STYLE: Make the text sound like natural speech. Use contractions where appropriate and avoid formal/technical language unless necessary.
-
-# Below is the INPUT:
-# """
 
 prompt = """
-Your task is to revise the following text to make it suitable for Text-to-Speech (TTS) rendering. Focus exclusively on these two aspects:
+LLM Prompt for TTS-Friendly Response Processing
+You will receive dialogue between a human user and an AI assistant. Your task is to revise the AI's latest response to be suitable for text-to-speech rendering.
 
-Remove all formatting symbols
+Input Format:
+CONTEXT: Previous dialogue history between human and AI
+RESPONSE: The AI assistant's latest response that needs revision
 
-Delete markdown markers (*, _, #, -, etc.)
-Remove HTML tags (<p>, <br>, etc.)
-Eliminate bullet points, numbered lists formatting
-Remove extra whitespace, tabs, or multiple line breaks
-Delete any other non-speech symbols
-
-
-Replace symbolic representations with spoken equivalents
-
-Convert "&" to "and"
-Replace "$" with "dollars" (or appropriate currency)
-Change "%" to "percent"
-Convert "@" to "at"
-Transform "+" to "plus"
-Change "-" to "minus" when used mathematically
-Convert "=" to "equals"
-Replace "<" and ">" with "less than" and "greater than"
-Convert other symbols like ©, ®, ™ to their spoken form
-Spell out emoticons/emojis (":)" becomes "smile" or omit if appropriate)
-Convert URLs to spoken form (e.g., "visit our website at example dot com")
-Write out date formats consistently (05/06/2025 becomes "May sixth, twenty twenty-five")
-Spell out abbreviations and acronyms when first mentioned
+Your Task:
+Analyze the RESPONSE and determine if revision is needed. If the response is already TTS-friendly, leave it unchanged. Otherwise, revise it to:
+1. Contain no more than 60 tokens.
+2. Include only plain text and punctuation (no formatting, code, lists, or special characters).
+3. Avoid all linebreaks, keeping text in a single continuous paragraph.
+4. Replace symbolic representations with their spoken equivalents:
+  * Numbers (20 → twenty)
+  * Currency ($100 → one hundred dollars)
+  * Percentages (7% → seven percent)
+  * Mathematical symbols (× → multiplied by, - → minus)
+5. Preserve the most important information and intent of the original response.
+6. Maintain a natural, conversational tone.
 
 
+Guidelines:
+1. Leave responses untouched if they already meet all TTS requirements
+2. Prioritize the direct answer to the user's question
+3. Remove explanations, examples, and tangential information when necessary
+4. Eliminate references to visual elements like formatting
+5. Ensure the response sounds natural when read aloud
 
-Do not alter the core content, meaning, or intent of the text. Maintain the original voice and style. Make only the changes necessary to ensure optimal TTS performance.
+### CONTEXT ###
+{}
+
+### RESPONSE ###
+{}
+
+### REVISED RESPONSE ###
+"""
+
+"""
+7. For reasoning questions, you need to keep the reasoning procedure.
+8. For response about math, ONLY SUMMARIZE THE FINAL OUTPUT IN A SHORT SENTENCE.
+9. For response about code, write a narrative description of the code.
 """
 
 
@@ -83,13 +77,13 @@ def get_parser():
     parser.add_argument(
         "--chunk_size", 
         type=int,
-        default=1,
+        default=500,
         help="Number of queries in each chunk"
     )
     parser.add_argument(
         "--num_workers", 
         type=int,
-        default=1,
+        default=48,
         help="Number of multiprocessing workers"
     )
     parser.add_argument(
@@ -104,8 +98,28 @@ def get_parser():
         default="lti-sw-gemini",
         help="The project name of cortex AI to call Gemini"
     )
+    parser.add_argument(
+        "--think_mode",
+        type=str2bool,
+        default=False,
+        help="If the data contains thinking procedure. i.e., the original text response"
+    )
 
     return parser
+
+def build_query(messages):
+    """ The last message are response, others are context """
+    context = ""
+    for msg in messages[:-1]:
+        role, modality, target, content = msg
+        assert modality == "text_bpe"
+
+        context += f"[{role}]:\n{content}\n\n"
+    
+    role, modality, target, content = messages[-1]
+    response = f"[{role}]:\n{content}"
+
+    return context, response
 
 class GeminiAPI:
     def __init__(self, model_id, project_id, prompt):
@@ -123,9 +137,27 @@ class GeminiAPI:
         )
 
     def __call__(self, query):
-        query = prompt.format(query[1])
-        response = self.model.generate_content(query)
-        return response.text
+        key, context, response = query
+        
+        query = prompt.format(context, response)
+
+        try:
+            llm_output = self.model.generate_content(query).text
+        except:
+            print(f"fail on query {key}")
+            llm_output = ""
+
+        # TTS is not robust to \n; it also cause bugs.
+        llm_output = llm_output.replace("\n", " ")
+
+        ans = {
+            "key": key,
+            "query": query,
+            'response': llm_output,
+        }
+
+
+        return ans
 
 def batch_process_queries(
         queries, 
@@ -135,6 +167,7 @@ def batch_process_queries(
         cache_file: str = "llm_cache.json"
     ):
     """Process queries in parallel with chunking and caching."""
+    print(f'in total, there are {len(queries)} examples')
 
     # Load cache if it exists
     cache = {}
@@ -144,8 +177,6 @@ def batch_process_queries(
             cache = json.load(f)
     print('cache size: ', len(cache))
     
-    results = []
-    
     # Process queries in chunks
     for i in range(0, len(queries), chunk_size):
         chunk = queries[i:i+chunk_size]
@@ -153,20 +184,29 @@ def batch_process_queries(
 
         # Process chunk in parallel
         chunk = [x for x in chunk if x[0] not in cache]
+        if len(chunk) == 0:
+            continue
+        else:
+            print("size of this chunk: ", len(chunk))
+        
         with multiprocessing.Pool(num_workers) as pool:
             chunk_results = pool.map(llm, chunk)
+        
         for result, query in zip(chunk_results, chunk):
-            cache[query[0]] = result
-            print("before: ", query[1])
-            print("after: ", result, flush=True)
+            key, response = result['key'], result['response']
+            cache[key] = {'query': query[1], 'response': query[2], 'revised_response': response}
     
         # Save cache after each chunk
-        with open(cache_file, 'w') as f:
-            json.dump(cache, f)
+        writer = open(cache_file, 'wb')
+        writer.write(
+            json.dumps(cache, indent=4, ensure_ascii=False, sort_keys=False).encode(
+                "utf_8"
+            )
+        )
+        print(f'save the cache at {cache_file}', flush=True)
     
-    return results
-
-
+    return cache
+    
 def main():
     parser = get_parser()
     args = parser.parse_args()
@@ -194,11 +234,11 @@ def main():
 
             assert modality == "text_bpe"
             
-            # Only revise the user input
-            if role == "user":
-                assert target == False
+            # only revise the assistant response
+            if role == "assistant":
                 key = f"{example_id}_turn{idx}_text"
-                queries.append((key, content))
+                context, response = build_query(messages[:idx + 1])
+                queries.append((key, context, response))
     
     # (3) init Gemini
     llm = GeminiAPI(
@@ -209,15 +249,59 @@ def main():
 
     # (4) processing in batches
     cache_file = args.output_dir / 'cache.json'
-    results = batch_process_queries(
+    cache = batch_process_queries(
         queries,
         llm,
         args.chunk_size,
         args.num_workers,
         cache_file,
     )
+    assert len(cache) == len(queries), "Some queries are not fulfilled"
 
+    # (5) Save new dataset
+    all_results = dict()
+    for query in queries:
+        key, _, text_response = query
+        result = cache[key]
+        speech_response = result['revised_response']
+        all_results[key] = {"text": text_response, "speech": speech_response}
+    
+    dataset = DialogueDataset(task="text_dialogue")
+    for example_id, messages in all_examples.items():
+        good_example = True
+        dialogue = Dialogue(task="text_dialogue")
 
+        if messages[0][0] == "system":
+            dialogue.add_segment(*messages[0])
+            messages = messages[1:]
+
+        for idx, msg in enumerate(messages):
+            role, modality, target, content = msg
+
+            if role != "assistant":
+                dialogue.add_segment(role, modality, target, content)
+            
+            else:
+                key = f"{example_id}_turn{idx}_text"
+                text_response = all_results[key]['text']
+                speech_response = all_results[key]['speech']
+
+                # Fail, since the safety mechanism of Gimini is triggered.
+                if speech_response.strip() == "":
+                    good_example = False
+            
+                if args.think_mode:
+                    dialogue.add_segment(role, modality, target, content)
+                dialogue.add_segment(role, modality, target, speech_response)
+        
+        if good_example:
+            dataset.add_dialogue(example_id, dialogue)
+        else:
+            print(f'avoid adding {example_id}. So cases failed.')
+        
+    dataset.dump_dataset(args.output_dir)
+    print('done at ', args.output_dir)
+                 
     
 if __name__ == "__main__":
     main()

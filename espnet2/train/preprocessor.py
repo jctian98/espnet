@@ -2545,7 +2545,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         task = self.tasks[task_name]
 
         data_tuples = [] # tuple of (name, modality, content, role, target)
-        if task_name in ["text_dialogue", "audio_dialogue", "vision_dialogue"]:
+        if task_name in ["text_dialogue", "audio_dialogue", "vision_dialogue", "audio_text_dialogue"]:
             for idx, (role, modality, target, content) in enumerate(data['dialogue']):
                 name = str(idx)
                 target = str(target) == "True"

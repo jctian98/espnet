@@ -19,7 +19,7 @@ log() {
 
 stage=1
 stop_stage=100
-nj=64               # number of parallel jobs
+nj=8               # number of parallel jobs
 fs=16000            # sampling frequency
 python=python3      # Specify python to execute espnet commands.
 
@@ -117,7 +117,8 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
           --expdir ${expdir} \
           --nbest ${nbest} \
           --test_jsons ${output_dir}/generation/data.json \
-          --inference_dir ${output_dir}/generation/inference
+          --inference_dir ${output_dir}/generation/inference \
+          --scoring_args "--eval_spk false --eval_mos false"
         
         infer_dir=${output_dir}/generation/inference/codec_ssl_tts_generation
         utils/filter_scp.pl ${infer_dir}/scoring/selected_examples \

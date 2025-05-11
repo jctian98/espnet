@@ -65,10 +65,6 @@ def main():
     for uid, segments in raw_examples.items():
         
         dialogue = Dialogue(task=args.task)
-
-        if args.task == "audio_dialogue":
-            prompt = ready_audios[f"{uid}_assistant_prompt"]
-            dialogue.add_segment("system", "spk", False, prompt)
         
         if segments[0][0] == "system":
             dialogue.add_segment(*segments[0])

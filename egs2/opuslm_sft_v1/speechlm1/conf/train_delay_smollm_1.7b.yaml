@@ -1,7 +1,7 @@
 # Model
 transformer: huggingface
 transformer_conf:
-    hf_model_tag: allenai/OLMo-2-1124-7B
+    hf_model_tag: HuggingFaceTB/SmolLM2-1.7B
     activation_checkpointing: true
     n_ctx: 16384
     
@@ -19,11 +19,10 @@ modality_weights: {
     "special_token": 1.0,
 }
 loss_region: target
-loss_type: sum
 
 # General Dataloader configuration
 batch_type: numel
-batch_bins: 13000
+batch_bins: 26000
 max_epoch: 3
 num_workers: 6
 drop_last_iter: false
@@ -44,5 +43,5 @@ asr_time_mask_config:
 
 # deepspeed
 use_deepspeed: true
-deepspeed_config: conf/deepspeed_ddp_zero2_olmo.json
+deepspeed_config: conf/deepspeed_ddp_zero1_smollm2.json 
 deepspeed_step_sync: false
