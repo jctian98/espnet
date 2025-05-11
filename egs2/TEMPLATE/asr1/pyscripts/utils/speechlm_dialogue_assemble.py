@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from espnet2.speechlm.dialogue.dialogue_format import Dialogue, DialogueDataset
 from espnet2.fileio.read_text import read_2columns_text
+from espnet2.utils.types import str2bool
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -35,6 +36,12 @@ def get_parser():
         type=Path,
         action="append",
         help="The prepared audio list",
+    )
+    parser.add_argument(
+        "--think_mode", 
+        type=str2bool,
+        default=False,
+        help="whether to use think mode",
     )
 
     return parser
@@ -70,21 +77,59 @@ def main():
             dialogue.add_segment(*segments[0])
             segments = segments[1:]
         
+        loop_length = 3 if args.think_mode else 2
+        if not len(segments) % loop_length == 0:
+            print(f"segments of {uid} is not valid in length: {segments}")
+            continue
+        
         for s_idx, segment in enumerate(segments):
             role, modality, target, content = segment
 
-            # audio first, text second
-            if role == "user":
-                audio = ready_audios[f"{uid}_turn{s_idx}_speech"]
-                dialogue.add_segment("user", "codec_ssl", False, audio)
-                dialogue.add_segment(f"assistant", "text_bpe", True, content)
+            # user_text -> assistant_text
+            if args.task == "audio_text_dialogue":
+                turn = (s_idx // 2) * 2 
+
+                if s_idx % 2 == 0:
+                    audio = ready_audios[f"{uid}_turn{turn}_speech"]
+                    dialogue.add_segment("user", "codec_ssl", False, audio)
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
+                
+                elif s_idx % 2 == 1:
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
             
-            # text first, audio second
-            elif role == "assistant":
-                dialogue.add_segment(f"assistant", "text_bpe", True, content)
-                if args.task == "audio_dialogue":
-                    audio = ready_audios[f"{uid}_turn{s_idx}_speech"]
-                    dialogue.add_segment(f"assistant", "codec_ssl", True, audio)
+            # user_text -> assistant_text
+            elif args.task == "audio_dialogue" and not args.think_mode:
+                turn = (s_idx // 2) * 2 
+
+                if s_idx % 2 == 0:
+                    audio = ready_audios[f"{uid}_turn{turn}_speech"]
+                    dialogue.add_segment("user", "codec_ssl", False, audio)
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
+                
+                elif s_idx % 2 == 1:
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
+                    audio = ready_audios[f"{uid}_turn{turn+1}_speech"]
+                    dialogue.add_segment("assistant", "codec_ssl", True, audio)
+            
+            # user_text -> assistant_think -> assistant_text
+            elif args.task == "audio_dialogue" and args.think_mode:
+                turn = (s_idx // 3) * 2
+
+                if s_idx % 3 == 0:
+                    audio = ready_audios[f"{uid}_turn{turn}_speech"]
+                    dialogue.add_segment("user", "codec_ssl", False, audio)
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
+                
+                elif s_idx % 3 == 1:
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
+                
+                elif s_idx % 3 == 2:
+                    dialogue.add_segment("assistant", "text_bpe", True, content)
+                    audio = ready_audios[f"{uid}_turn{turn+1}_speech"]
+                    dialogue.add_segment("assistant", "codec_ssl", True, audio)
+            
+            else:
+                raise NotImplementedError
             
         dataset.add_dialogue(uid, dialogue)
     

@@ -26,6 +26,7 @@ python=python3      # Specify python to execute espnet commands.
 # Overall settings
 input_dir=                                                                          # input text dialogue data
 output_dir=                                                                         # output spoken dialogue data
+think_mode=false                                                                    # whether to use think mode
 ready_audio_list="none"                                                             # reference audio file. Can be wav-list or kaldi-ark list
 user_prompt_list=dump/raw_codec_ssl_tts_yodas/train_yodas/index_files/wav.scp       # prompt to generate user speech
 assistant_prompt_list=data/assistant_prompt.scp                                     # prompt to generate assistant speech
@@ -135,10 +136,12 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     python pyscripts/utils/speechlm_dialogue_assemble.py \
       --input_dir ${input_dir} \
       --output_dir ${output_dir} \
+      --think_mode ${think_mode} \
       --task ${task} \
       --ready_audio ${output_dir}/tokenization/audio/wav.scp \
       --ready_audio ${output_dir}/generation/generated_token.scp \
-      --ready_audio ${output_dir}/ark/wav.scp
+      --ready_audio ${output_dir}/ark/wav.scp \
+      --ready_audio ${ready_audio_list} 
     
     cp ${output_dir}/data/dialogue.1 ${output_dir}/dialogue
 fi
