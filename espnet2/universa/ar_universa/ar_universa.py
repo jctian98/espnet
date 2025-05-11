@@ -175,6 +175,8 @@ class ARUniversa(AbsUniversa):
         decoder_input_dim = embedding_size
         self.use_normalize = use_normalize
         self.search_module = None
+        self.save_token_seq = False
+        self.sequential_metrics = sequential_metrics
 
         # Metric information
         # NOTE(jiatong): not useful for ARUniversa, but keep it for future use
@@ -472,13 +474,15 @@ class ARUniversa(AbsUniversa):
 
     @typechecked
     def set_inference(
-        self, beam_size: int, metric_list: List[str], extend_without_scorer: bool
+        self, beam_size: int, metric_list: List[str], skip_meta_label_score: bool, save_token_seq: bool = False
     ) -> None:
         """Set inference mode.
 
         Args:
             beam_size (int): Beam size for beam search.
             metric_list (List[str]): List of metrics to predict.
+            skip_meta_label_score (bool): Whether to skip meta label score.
+            save_token_seq (bool): Whether to save token sequence.
         """
         self.eval()
         scorers = {
@@ -497,15 +501,8 @@ class ARUniversa(AbsUniversa):
             start_idx = start_idx + self.metric_tokenizer.overall_offset + 2
             end_idx = start_idx + (num_idx - 2)
             beam_masking[metric_token] = (start_idx, end_idx)
-
-        print(
-            beam_masking,
-            [
-                self.metric_tokenizer.get_metric_meta_label(metric)
-                for metric in metric_list
-            ],
-            flush=True,
-        )
+        
+        self.save_token_seq = save_token_seq
 
         self.search_module = ARUniVERSABeamSearch(
             scorers=scorers,
@@ -519,7 +516,7 @@ class ARUniversa(AbsUniversa):
                 for metric in metric_list
             ],
             token_list=self.metric_tokenizer.get_token_list(),
-            extend_without_scorer=extend_without_scorer,
+            skip_meta_label_score=skip_meta_label_score,
             beam_masking=beam_masking,
         )
 
@@ -555,7 +552,7 @@ class ARUniversa(AbsUniversa):
             self.set_inference(
                 beam_size=1,
                 metric_list=list(self.metric2id.keys()),
-                extend_without_scorer=False,
+                skip_meta_label_score=False,
             )
 
         # 1. Encode audio
@@ -586,6 +583,9 @@ class ARUniversa(AbsUniversa):
         pred_metrics = self.metric_tokenizer.tokenseq2metric(
             pred_metrics, return_dict=True
         )
+
+        if self.save_token_seq:
+            pred_metrics["token_seq"] = [[int(token) for token in nbest_hyps[0].yseq]]
 
         pred_metrics["use_tokenizer_metrics"] = True
         pred_metrics["sequential_metrics"] = True
