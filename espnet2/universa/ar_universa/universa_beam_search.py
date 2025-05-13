@@ -201,7 +201,8 @@ class ARUniVERSABeamSearch:
         weighted_scores[:] = -float("inf")
         weighted_scores[ids] = tmp
         top_ids = weighted_scores.topk(local_beam_size)[1]
-        local_ids = weighted_scores[ids].topk(local_beam_size)[1]
+        local_id_beam_size = min(local_beam_size, ids.size(0))
+        local_ids = weighted_scores[ids].topk(local_id_beam_size)[1]
         return top_ids, local_ids
 
     @staticmethod
@@ -233,20 +234,16 @@ class ARUniVERSABeamSearch:
         self,
         running_hyps: List[Hypothesis],
         x: torch.Tensor,
-        unused_meta_label_ids: List[int],
     ) -> List[Hypothesis]:
         """Extend the hypotheses with the list of meta label ids.
 
         Args:
             running_hyps (List[Hypothesis]): Running hypotheses on beam
             x (torch.Tensor): Encoded speech feature (T, D)
-            unused_meta_label_ids (List[int]): Unused meta label ids for search
-                e.g., [0, 1, 2, 3, 4]
-                The meta label ids are used to select the scorers for search.
         """
         extended_hyps = []
-        part_ids = torch.tensor(unused_meta_label_ids, device=x.device)
         for hyp in running_hyps:
+            part_ids = torch.tensor(hyp.unused_meta_label_ids, device=x.device)
             if self.skip_meta_label_score:
                 weighted_scores = torch.zeros(
                     self.n_vocab, dtype=x.dtype, device=x.device
@@ -303,10 +300,9 @@ class ARUniVERSABeamSearch:
         best_hyps = []
         extended_running_hyps = []
 
-        for hyp in running_hyps:
-            extended_running_hyps.extend(
-                self.extend(running_hyps, x, hyp.unused_meta_label_ids)
-            )
+        extended_running_hyps.extend(
+            self.extend(running_hyps, x)
+        )
         for hyp in extended_running_hyps:
             # scoring
             weighted_scores = torch.zeros(self.n_vocab, dtype=x.dtype, device=x.device)

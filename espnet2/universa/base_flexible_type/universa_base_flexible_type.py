@@ -167,6 +167,7 @@ class UniversaBaseFlexibleType(AbsUniversa):
         self.metric_tokenizer = MetricTokenizer(
             metric_token_info, tokenize_metric=list(metric2id.keys())
         )
+        self.sequential_metrics = False
 
         if metric2type is None:
             self.id2type = {i: "numerical" for i in self.metric_size}
