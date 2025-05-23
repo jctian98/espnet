@@ -39,26 +39,31 @@ Also check our system paper on [ESPnet-SpeechLM](https://arxiv.org/abs/2502.1521
 
 ## Environments
 First, please install ESPnet following the [Install Instruction](https://espnet.github.io/espnet/installation.html).
-  * Recommend to use Pytorch 2.1.0 and above
+  * Recommend to use Pytorch 2.4.0 and above
 
-If you plan to use third-party models from Huggingface, also install:
+Install additional packages
 ```
 # HuggingFace Tools
 pip install huggingface-hub transformers tokenizers datasets
 
 # Flash Attention
 pip install flash-attn --no-build-isolation
+
+# DeepSpeed
+pip install deepspeed
+
+# Whisper
+pip install openai-whisper
 ```
 
 For evaluation purpose, also install VERSA (ESPnet evluation toolkit, under rapid development).
 ```
-git clone https://github.com/ftshijt/speech_evaluation.git
-cd speech_evaluation
+git clone https://github.com/wavlab-speech/versa.git
+cd versa
 pip install .
 ```
-VISQOL dependency may have some issue. If you don't need that, comment [this line](#https://github.com/ftshijt/speech_evaluation/blob/50419bda43c27a0c3c484e96214bf5e02dbed089/setup.py#L54) and then install
 
-TODO: Build DeepSpeed environment
+
 
 <!-- ## Check List of Building a New Task
 We provide a check list for developers who want to work on a new task with ESPnet SpeechLM. Users are highly recommended to read [The Concept of Task Templete](#the-concept-of-task-templete) before working on a new task.
@@ -583,51 +588,42 @@ When training with massive data, storing the whole dataset in each GPU process i
 
 ## Resources
 ### Pre-Trained Models:
-We share the pre-trained SpeechlM of 7B. The model will be openly avaialbel after May 19th. If you want to access it earlier, please contact us.
-  * HuggingFace Repo: https://huggingface.co/JinchuanTian/opuslm_v1_7b_anneal_205
-  * Download the model and its dependency by `cd espnet/egs2/<dataname>/speechlm1; huggingface-cli download --repo-type model --local-dir . JinchuanTian/opuslm_v1_7b_anneal_205`
+We share the pre-trained OpusLM of 1.7B and 7B. The model will be openly avaialbel after May 19th. If you want to access it earlier, please contact us.
+  * 1.7B: https://huggingface.co/espnet/OpusLM_1.7B_Anneal
+  * 7B: https://huggingface.co/espnet/OpusLM_7B_Anneal
+  * Download the model and its dependency by:
+    * `cd espnet/egs2/librispeech/speechlm1; huggingface-cli download --repo-type model --local-dir . espnet/OpusLM_1.7B_Anneal` (OpusLM-1.7B)
+    * `cd espnet/egs2/librispeech/speechlm1; huggingface-cli download --repo-type model --local-dir . espnet/OpusLM_7B_Anneal` (OpusLM-7B)
 
 
 #### Tokenization
 Please setup the tokenizer options for `speechlm.sh` as below:
   * For codec: `--codec_choice ESPnet --codec_hf_model_tag ftshijt/espnet_codec_dac_large_v1.4_360epoch`
   * For SSL: `--ssl_choice espnet_hubert --ssl_nlayer 18 --ssl_checkpoint_path exp/kmeans/38epoch.pth --ssl_kmeans_path exp/kmeans/xeus_18_5000clusters/km_5000.mdl --ssl_batch_bins 5000000`
-  * For text BPE: `--subword_choice huggingface --subword_model allenai/OLMo-2-1124-7B`
+  * For text BPE: 
+    * `--subword_choice huggingface --subword_model HuggingFaceTB/SmolLM2-1.7B-Instruct` (1.7B)
+    * `--subword_choice huggingface --subword_model allenai/OLMo-2-1124-7B` (7B)
 
 #### Config files:
   * Generally, you can use `conf/decode_general.yaml` for all inference, including ASR, TTS, dialogues. You can tune the `nproc` parameter > 1 to enable multiprocessing on a single GPU.
 
 #### Inference Demo:
-  * We also share the pre-tokenized LibriSpeech Test-Clean subset for ASR and TTS inference. Run as follow:
+  * When downloading the model file, we also provide the pre-tokenized LibriSpeech Test-Clean set for quick inference test.
   ```bash
   # ASR Inference. Change task to codec_ssl_tts for TTS inference
+  # In folder: <espnet>/espnet2/speechlm1/
   bash run.sh \
     --skip_data_prep false \
     --stage 9 --stop_stage 10 \
     --inference_nj 4 \
-    --tag opuslm_v1_7b_anneal_205 \
-    --inference_model 205epoch.pth \
+    --tag OpusLM_1.7B_anneal \
+    --inference_model model.pth \
     --inference_config conf/decode_general.yaml \
-    --task codec_ssl_asr \
+    --task codec_ssl_tts \
     --nbest 1 \
     --data_name librispeech \
     --test_sets test_clean
-  ```
-
-  ```bash
-  # Audio Dialogue inference
-  bash run.sh \
-    --skip_data_prep true \
-    --stage 9 --stop_stage 9 \
-    --inference_nj 1 \
-    --expdir exp_olmo2_sft \
-    --tag opus_sft_1e-5_sumloss_speech \
-    --inference_model 2epoch.pth \
-    --inference_config conf/decode_general.yaml \
-    --task audio_dialogue \
-    --nbest 1 \
-    --test_jsons dump/raw_audio_dialogue_sft_acl/HuggingFaceTB-smoltalk_everyday-conversations_test/data.json
-  ```
+```
 
 ### Step-by-Step Guidance of supporting a new task
   * Before you start, make sure you have some additional dependencies installed.
