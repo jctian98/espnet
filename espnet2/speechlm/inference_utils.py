@@ -75,7 +75,7 @@ def build_inference_config(
         if m == "text_bpe":
             assert config["search_algo"] in ["topk_sampling", "greedy_search", "teacher_force"]
         elif m == "codec_ssl" or m == "codec":
-            assert config["search_algo"] in ["topk_sampling", "teacher_force"]
+            assert config["search_algo"] in ["topk_sampling", "greedy_search", "teacher_force"]
 
         if config["search_algo"] == "topk_sampling":
             kwargs["sampling_temperature"] = config["sampling_temperature"]
@@ -132,7 +132,7 @@ def build_mask(train_args, modality):
     elif modality == "codec":
         inc = (token_end - token_start) // nq
         for i in range(nq):
-            mask[i, token_start + inc * (i - 1):token_start + inc * i] = False
+            mask[i, token_start + inc * i: token_start + inc * (i+1)] = False
     elif modality == "text_bpe":
         mask[0, token_start:token_end] = False
 
@@ -333,7 +333,7 @@ class ChatOrientedWriter:
             # write
             self.writer[segment_name] = segment.int().flatten().cpu().numpy()
 
-            if modality == "codec_ssl":
+            if modality == "codec_ssl" or modality  == "codec":
                 audio_path = str(self.output_dir / f"{segment_name}.wav")
                 save_audio(audio_path, detokenized)
                 detokenized = audio_path
