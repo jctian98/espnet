@@ -11,6 +11,7 @@ cpu_per_gpu = 32
 mem_per_gpu = 200
 gpu_partition = "interactive_singlenode,backfill_singlenode,batch_singlenode,polar,polar3,polar4"
 gpu_partition = "backfill_singlenode,batch_singlenode,polar,polar3,polar4"
+gpu_partition_multinode = "polar,polar3,polar4"
 cpu_partition = "cpu"
 image = "/lustre/fsw/portfolios/adlr/users/sanggill/docker/unifugatto:250519.sqsh"
 mounts = "/home/jinchuant,/lustre/fsw/portfolios/llmservice/users/jinchuant"
@@ -49,6 +50,8 @@ def parse_commands():
     if args[0] == "--num_nodes":
         num_nodes = int(args[1])
         args = args[2:]
+        if num_nodes > 1:
+            partition = gpu_partition_multinode
     else:
         num_nodes = 1
     
@@ -105,6 +108,8 @@ def parse_commands():
             submit_cmd += f"> {this_log_file} 2>&1 "
         else:
             submit_cmd += f"--outfile {this_log_file} "
+        
+        print(submit_cmd)
 
         all_submit_cmd.append(submit_cmd)
     

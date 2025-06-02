@@ -366,27 +366,4 @@ def get_num_nodes(prior=None, launcher: Optional[str] = None) -> Optional[int]:
     the real Rank is set as (nGPU * NodeID) + LOCAL_RANK in torch.distributed.
 
     """
-    if prior is not None:
-        return prior
-    elif launcher == "slurm":
-        if not is_in_slurm_step():
-            raise RuntimeError("This process seems not to be launched by 'srun'")
-
-        # Assume ntasks_per_node == 1
-        if os.environ["SLURM_STEP_NUM_NODES"] != os.environ["SLURM_NTASKS"]:
-            raise RuntimeError(
-                "Run with --ntasks_per_node=1 if mutliprocessing_distributed=true"
-            )
-        return int(os.environ["SLURM_STEP_NUM_NODES"])
-    elif launcher == "mpi":
-        # Use mpi4py only for initialization and not using for communication
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        # Assume ntasks_per_node == 1 (We can't check whether it is or not)
-        return comm.Get_size()
-    elif launcher is not None:
-        raise RuntimeError(f"launcher='{launcher}' is not supported")
-    else:
-        # prior is None -> NUM_NODES = 1
-        return int(os.environ.get("WORLD_SIZE", 1))
+    return int(os.environ.get("WORLD_SIZE", 1))
