@@ -182,8 +182,15 @@ class CodecTokenizer(AbsTokenizer):
 
             self.model = model.to(device)
 
-            self.n_codebook = h['bottleneck']['config']['n_codebooks']
-            self.size_codebook = h['bottleneck']['config']['codebook_size']
+            if h['bottleneck']["type"] == "dithered_fsq":
+                self.n_codebook = h['bottleneck']['config']['num_codebooks']
+                self.size_codebook = 2048 # hard code to 2k
+                self.quantizer_type = "fsq"
+            else:
+                self.n_codebook = h['bottleneck']['config']['n_codebooks']
+                self.size_codebook = h['bottleneck']['config']['codebook_size']
+                self.quantizer_type = "rvq"
+
             self.sample_rate = h['sampling_rate']
             self.subsample = h['hop_size']
             self.normalize_volume = getattr(h, "normalize_volume", True)
@@ -236,7 +243,9 @@ class CodecTokenizer(AbsTokenizer):
 
             tokens_key = self.model.bottleneck.tokens_id
             codes = self.model.encode(wavs)[tokens_key]
-            codes = codes.permute(0, 2, 1)
+            # NOTE(Jinchuan): output shapes of RVQ and FSQ are different
+            if self.quantizer_type == "rvq":
+                codes = codes.permute(0, 2, 1)
 
         else:
             raise NotImplementedError
@@ -306,7 +315,8 @@ class CodecTokenizer(AbsTokenizer):
             waveform = self.codec.decode(codes)
         
         elif self.codec_choice == "bigvgan":
-            codes = codes.permute(0, 2, 1)
+            if self.quantizer_type == "rvq":
+                codes = codes.permute(0, 2, 1)
             waveform = self.model.decode_tokens(tokens=codes)['decoder_out']
             waveform = torch.clamp(waveform, min=-1.0, max=1.0)
         else:

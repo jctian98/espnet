@@ -124,6 +124,7 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
             --use_gpu ${use_gpu} \
             --feature_conf "'${feature_conf}'" \
             --utt2num_samples ${tgt_dir}/logdir/utt2num_samples.JOB \
+            --rank JOB \
             ${rspecifier} ${wspecifier}
 
 

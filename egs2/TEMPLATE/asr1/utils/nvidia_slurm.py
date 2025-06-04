@@ -4,6 +4,7 @@ import sys
 import os
 import subprocess
 import concurrent.futures
+import uuid
 from pathlib import Path
 
 
@@ -82,7 +83,7 @@ def parse_commands():
 
         submit_cmd =  f"submit_job "
         submit_cmd += f"--email_mode fail "
-        submit_cmd += f"-n {name}_{idx} "
+        submit_cmd += f"-n {name}_{idx}_{uuid.uuid4()} "
         submit_cmd += f"--partition {partition} "
         submit_cmd += f"--nodes {num_nodes} "
         if ngpu == 8: # take the whole node: cpu/gpu/mem
@@ -129,7 +130,7 @@ def main():
     (job_start, job_end), command_list, log_file = parse_commands()
     results = []
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=2000) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
         # Submit all commands to be executed
         future_to_cmd = {executor.submit(execute_command, cmd): cmd for cmd in command_list}
 

@@ -366,4 +366,7 @@ def get_num_nodes(prior=None, launcher: Optional[str] = None) -> Optional[int]:
     the real Rank is set as (nGPU * NodeID) + LOCAL_RANK in torch.distributed.
 
     """
-    return int(os.environ.get("WORLD_SIZE", 1))
+    if "WORLD_SIZE" in os.environ:
+        return int(os.environ['WORLD_SIZE'])
+    else:
+        return torch.cuda.device_count()

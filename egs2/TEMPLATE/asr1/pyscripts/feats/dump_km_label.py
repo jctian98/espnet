@@ -54,6 +54,7 @@ def get_parser():
     parser.add_argument("--online_feature_extract", type=str2bool, default=False)
     parser.add_argument("--feature_conf", type=str, default=None)
     parser.add_argument("--batch_bins", type=int, default=1)
+    parser.add_argument("--rank", type=int, default=1)
     parser.add_argument(
         "--utt2num_samples",
         type=str,
@@ -123,8 +124,15 @@ def dump_label(
     km_path,
     use_gpu,
     online_feature_extract,
+    rank,
     **kwargs
 ):
+    if torch.cuda.device_count() > 0:
+        device_id = rank % torch.cuda.device_count()
+        torch.cuda.set_device(device_id)
+    else:
+        raise ValueError("No Cuda")
+
     if online_feature_extract:
         assert "feature_conf" in kwargs
         # need to wrap arguments with double-quotes for json string

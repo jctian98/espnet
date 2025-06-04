@@ -66,11 +66,11 @@ def split_one_data_json(json_file, nj, output_dir):
                 all_file_dict[(path, name, _type)],
                 nj,
             )
-        # elif _type == "dialogue_json":
-        #     splits = split_by_consecutive(
-        #         all_file_dict[(path, name, _type)],
-        #         nj,
-        #     )
+        elif _type == "dialogue_json":
+            splits = split_by_consecutive(
+                all_file_dict[(path, name, _type)],
+                nj,
+            )
 
         if splits is not None:
             break
