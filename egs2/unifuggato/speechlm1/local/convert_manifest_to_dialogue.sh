@@ -29,42 +29,63 @@ log "$0 $*"
 . ./path.sh
 . ./cmd.sh
 
+find_stem() {
+    local file="$1"
+    local filename=$(basename "$file")
+    local stem="${filename%.*}"
+    
+    if [ "$stem" = "train" ]; then
+        local parent_dir=$(dirname "$file")
+        local parent_stem=$(basename "$parent_dir")
+        local parent_stem=${parent_stem%.*}
+        echo "$parent_stem"
+    else
+        echo "$stem"
+    fi
+}
+
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     log "Prepare wav.scp and segments for tokenization"
     python3 local/parse_data_manifest.py \
       --manifests ${manifests} \
       --prefix ${dataname} \
       --output_dir data
+    
+    # aggregate all audio files
+    mkdir -p data/${dataname}_all
+    for file in wav.scp segments; do
+        for manifest in ${manifests}; do
+            dset=$(find_stem "$manifest")
+            cat data/${dataname}_${dset}/${file}
+        done | sort | uniq > data/${dataname}_all/${file}
+    done
+    
 fi
 
 if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     log "Tokenization"
 
     # First, dump all audio to disk
-    # for dset in `ls data | grep ^${dataname} `; do
-    #     bash run.sh \
-    #     --stage 2 \
-    #     --stop_stage 2 \
-    #     --nj ${nj} \
-    #     --dumpdir ${dumpdir} \
-    #     --task ${tokenization_task} \
-    #     --train_set ${dset} \
-    #     --data_name ${dataname} \
-    #     ${tokenization_opts}
-    # done
+    bash run.sh \
+    --stage 2 \
+    --stop_stage 2 \
+    --nj ${nj} \
+    --dumpdir ${dumpdir} \
+    --task ${tokenization_task} \
+    --train_set ${dataname}_all \
+    --data_name ${dataname} \
+    ${tokenization_opts}
 
     # Second, tokenization
-    for dset in `ls data | grep ^${dataname} `; do
-        bash run.sh \
-        --stage 5 \
-        --stop_stage 5 \
-        --nj ${nj} \
-        --dumpdir ${dumpdir} \
-        --task ${tokenization_task} \
-        --train_set ${dset} \
-        --data_name ${dataname} \
-        ${tokenization_opts} || exit 1;
-    done; wait
+    # bash run.sh \
+    # --stage 5 \
+    # --stop_stage 5 \
+    # --nj ${nj} \
+    # --dumpdir ${dumpdir} \
+    # --task ${tokenization_task} \
+    # --train_set ${dataname}_all \
+    # --data_name ${dataname} \
+    # ${tokenization_opts}
 fi
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then

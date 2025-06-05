@@ -26,7 +26,7 @@ batch_bins: 12000
 num_iters_per_epoch: 10000
 epoch_this_run: 1
 max_epoch: 50
-num_workers: 4
+num_workers: 2
 drop_last_iter: true
 log_interval: 100
 

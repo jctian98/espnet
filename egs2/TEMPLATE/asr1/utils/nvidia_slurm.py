@@ -5,6 +5,7 @@ import os
 import subprocess
 import concurrent.futures
 import uuid
+import time
 from pathlib import Path
 
 
@@ -130,9 +131,15 @@ def main():
     (job_start, job_end), command_list, log_file = parse_commands()
     results = []
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=256) as executor:
         # Submit all commands to be executed
-        future_to_cmd = {executor.submit(execute_command, cmd): cmd for cmd in command_list}
+        # future_to_cmd = {executor.submit(execute_command, cmd): cmd for cmd in command_list}
+        future_to_cmd = dict()
+        for idx, cmd in enumerate(command_list):
+            future = executor.submit(execute_command, cmd)
+            future_to_cmd[future] = cmd
+            print(f'submit command {idx} ...', flush=True)
+            time.sleep(3)
 
         # Collect results as they complete
         for future in concurrent.futures.as_completed(future_to_cmd):

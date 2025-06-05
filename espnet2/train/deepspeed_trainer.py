@@ -124,8 +124,11 @@ class DeepSpeedTrainer(Trainer):
         # nvidia auto-resume
         if trainer_options.epoch_this_run >= 1:
             sys.path.append(os.environ.get('SUBMIT_SCRIPTS','.'))
-            from userlib.auto_resume import AutoResume
-            AutoResume.init()
+            try:
+                from userlib.auto_resume import AutoResume
+                AutoResume.init()
+            except:
+                print("Failed to initialize auto-resume")
 
         # (5) loop on epochs
         start_epoch = reporter.get_epoch() + 1
@@ -146,15 +149,6 @@ class DeepSpeedTrainer(Trainer):
                     reporter=sub_reporter,
                     options=trainer_options,
                 )
-            
-            # (5.2) save checkpoint
-            checkpoint_path = output_dir / f"checkpoint_{iepoch}"
-            model.save_checkpoint(
-                checkpoint_path,
-                tag=f"{iepoch}",
-                client_state={"reporter": reporter.state_dict()},
-            )
-            logging.info(f"Checkpoint saved")
 
             # (5.3) valid one epoch
             logging.info("Start Evaluation ...")
@@ -165,6 +159,15 @@ class DeepSpeedTrainer(Trainer):
                     reporter=sub_reporter,
                     options=trainer_options,
                 )
+            
+            # (5.2) save checkpoint
+            checkpoint_path = output_dir / f"checkpoint_{iepoch}"
+            model.save_checkpoint(
+                checkpoint_path,
+                tag=f"{iepoch}",
+                client_state={"reporter": reporter.state_dict()},
+            )
+            logging.info(f"Checkpoint saved")
 
             # (5.4) reporter
             if dist.get_rank() == 0:
@@ -173,10 +176,13 @@ class DeepSpeedTrainer(Trainer):
             
             # (5.5) exit early if epoch_this_run specified.
             if trainer_options.epoch_this_run >= 1 and iepoch - start_epoch >= trainer_options.epoch_this_run - 1:
-                if AutoResume.termination_requested():
-                    logging.info(f"You only request to train for {trainer_options.epoch_this_run} epoch(s) so exit.")
-                    AutoResume.request_resume()
-                    return
+                try:
+                    if AutoResume.termination_requested():
+                        logging.info(f"You only request to train for {trainer_options.epoch_this_run} epoch(s) so exit.")
+                        AutoResume.request_resume()
+                        return
+                except:
+                    print("Ignore the auto-resume ")
 
 
     @classmethod

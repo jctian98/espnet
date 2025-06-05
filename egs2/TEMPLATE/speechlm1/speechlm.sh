@@ -60,7 +60,7 @@ test_jsons=""
 feats_type=raw             # Input feature type.
 audio_format=flac.ark      # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw).
 min_wav_duration=0.1       # Minimum duration in second.
-max_wav_duration=600       # Maximum duration in second.
+max_wav_duration=120       # Maximum duration in second.
 fs=16000                   # Sampling rate.
 
 # Training related

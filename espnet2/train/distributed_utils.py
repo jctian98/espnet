@@ -155,11 +155,12 @@ def resolve_distributed_mode(args):
             # LOCAL_RANK is always 0
             args.local_rank = 0
 
-        if num_nodes > 1 and get_node_rank(args.dist_rank, args.dist_launcher) is None:
-            raise RuntimeError(
-                "--dist_rank or RANK must be set "
-                "if --multiprocessing_distributed == true"
-            )
+        # if num_nodes > 1 and get_node_rank(args.dist_rank, args.dist_launcher) is None:
+        #     raise RuntimeError(
+        #         f"--num_nodes: {num_nodes} --launcher {args.dist_launcher} "
+        #         "--dist_rank or RANK must be set "
+        #         "if --multiprocessing_distributed == true"
+        #     )
 
         # Note that RANK, LOCAL_RANK, and WORLD_SIZE is automatically set,
         # so we don't need to check here

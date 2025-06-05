@@ -175,8 +175,20 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
 
+    valid_examples = list()
     for manifest in args.manifests:
-        process_one_manifest(manifest, args.dumpdir, args.prefix, args.task)
+        this_valid_examples = process_one_manifest(
+            manifest, args.dumpdir, args.prefix, args.task
+        )
+        valid_examples.extend(this_valid_examples)
+
+    valid_output_dir = args.dumpdir.parent / f"raw_audio_dialogue_{args.prefix}" 
+    valid_output_dir = valid_output_dir / f"{args.prefix}_valid"
+    valid_dataset = DialogueDataset(task="audio_dialogue")
+
+    for example_id, dialogue in valid_examples:
+        valid_dataset.add_dialogue(example_id, dialogue)
+    valid_dataset.dump_dataset(valid_output_dir)
 
 def process_one_manifest(manifest, dumpdir, prefix, task):
     subset_name = Path(manifest).stem
@@ -184,7 +196,7 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
         subset_name = Path(manifest).parent.stem
     
     # read wav.scp
-    wav_scp_file = dumpdir / f"{prefix}_{subset_name}" / 'wav.scp'
+    wav_scp_file = dumpdir / f"{prefix}_all" / 'wav.scp'
     if task == "continuous_audio_caption":
         wav_scp_file = str(wav_scp_file).replace("/raw_", "/audio_raw_")
     wav_scp = dict()
@@ -210,6 +222,7 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
 
     # parse each example
     dataset = DialogueDataset(task='audio_dialogue')
+    valid_examples = list()
     for idx, example in enumerate(json_list):
         example_id = f"{prefix}_{subset_name}_{idx}"
         if example_id not in wav_scp:
@@ -241,8 +254,11 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
             raise NotImplementedError    
         
         dataset.add_dialogue(example_id, dialogue)
+        if random.random() < 0.0005:
+            valid_examples.append((example_id, dialogue))
     
     dataset.dump_dataset(output_dir)
+    return valid_examples
 
 if __name__ == "__main__":
     main()
