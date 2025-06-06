@@ -4,6 +4,8 @@ import sys
 import os
 import subprocess
 import concurrent.futures
+import uuid
+import time
 from pathlib import Path
 
 
@@ -11,6 +13,7 @@ cpu_per_gpu = 32
 mem_per_gpu = 200
 gpu_partition = "interactive_singlenode,backfill_singlenode,batch_singlenode,polar,polar3,polar4"
 gpu_partition = "backfill_singlenode,batch_singlenode,polar,polar3,polar4"
+gpu_partition_multinode = "polar,polar3,polar4"
 cpu_partition = "cpu"
 image = "/lustre/fsw/portfolios/adlr/users/sanggill/docker/unifugatto:250519.sqsh"
 mounts = "/home/jinchuant,/lustre/fsw/portfolios/llmservice/users/jinchuant"
@@ -49,6 +52,8 @@ def parse_commands():
     if args[0] == "--num_nodes":
         num_nodes = int(args[1])
         args = args[2:]
+        if num_nodes > 1:
+            partition = gpu_partition_multinode
     else:
         num_nodes = 1
     
@@ -79,7 +84,7 @@ def parse_commands():
 
         submit_cmd =  f"submit_job "
         submit_cmd += f"--email_mode fail "
-        submit_cmd += f"-n {name}_{idx} "
+        submit_cmd += f"-n {name}_{idx}_{uuid.uuid4()} "
         submit_cmd += f"--partition {partition} "
         submit_cmd += f"--nodes {num_nodes} "
         if ngpu == 8: # take the whole node: cpu/gpu/mem
@@ -105,6 +110,8 @@ def parse_commands():
             submit_cmd += f"> {this_log_file} 2>&1 "
         else:
             submit_cmd += f"--outfile {this_log_file} "
+        
+        print(submit_cmd)
 
         all_submit_cmd.append(submit_cmd)
     
@@ -124,9 +131,15 @@ def main():
     (job_start, job_end), command_list, log_file = parse_commands()
     results = []
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=2000) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=256) as executor:
         # Submit all commands to be executed
-        future_to_cmd = {executor.submit(execute_command, cmd): cmd for cmd in command_list}
+        # future_to_cmd = {executor.submit(execute_command, cmd): cmd for cmd in command_list}
+        future_to_cmd = dict()
+        for idx, cmd in enumerate(command_list):
+            future = executor.submit(execute_command, cmd)
+            future_to_cmd[future] = cmd
+            print(f'submit command {idx} ...', flush=True)
+            time.sleep(3)
 
         # Collect results as they complete
         for future in concurrent.futures.as_completed(future_to_cmd):

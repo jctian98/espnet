@@ -155,11 +155,12 @@ def resolve_distributed_mode(args):
             # LOCAL_RANK is always 0
             args.local_rank = 0
 
-        if num_nodes > 1 and get_node_rank(args.dist_rank, args.dist_launcher) is None:
-            raise RuntimeError(
-                "--dist_rank or RANK must be set "
-                "if --multiprocessing_distributed == true"
-            )
+        # if num_nodes > 1 and get_node_rank(args.dist_rank, args.dist_launcher) is None:
+        #     raise RuntimeError(
+        #         f"--num_nodes: {num_nodes} --launcher {args.dist_launcher} "
+        #         "--dist_rank or RANK must be set "
+        #         "if --multiprocessing_distributed == true"
+        #     )
 
         # Note that RANK, LOCAL_RANK, and WORLD_SIZE is automatically set,
         # so we don't need to check here
@@ -304,6 +305,9 @@ def get_local_rank(prior=None, launcher: Optional[str] = None) -> Optional[int]:
 
 def get_master_addr(prior=None, launcher: Optional[str] = None) -> Optional[str]:
     if prior is None:
+        if os.environ.get("MASTER_ADDR", None) is not None:
+            return os.environ["MASTER_ADDR"]
+
         if launcher == "slurm":
             if not is_in_slurm_step():
                 raise RuntimeError("This process seems not to be launched by 'srun'")
@@ -321,6 +325,8 @@ def get_master_addr(prior=None, launcher: Optional[str] = None) -> Optional[str]
 def get_master_port(prior=None) -> Optional[int]:
     if prior is not None:
         return prior
+    if os.environ.get("MASTER_PORT", None) is not None:
+        return int(os.environ["MASTER_PORT"])
     else:
         return _int_or_none(os.environ.get("MASTER_PORT"))
 
@@ -366,27 +372,7 @@ def get_num_nodes(prior=None, launcher: Optional[str] = None) -> Optional[int]:
     the real Rank is set as (nGPU * NodeID) + LOCAL_RANK in torch.distributed.
 
     """
-    if prior is not None:
-        return prior
-    elif launcher == "slurm":
-        if not is_in_slurm_step():
-            raise RuntimeError("This process seems not to be launched by 'srun'")
-
-        # Assume ntasks_per_node == 1
-        if os.environ["SLURM_STEP_NUM_NODES"] != os.environ["SLURM_NTASKS"]:
-            raise RuntimeError(
-                "Run with --ntasks_per_node=1 if mutliprocessing_distributed=true"
-            )
-        return int(os.environ["SLURM_STEP_NUM_NODES"])
-    elif launcher == "mpi":
-        # Use mpi4py only for initialization and not using for communication
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        # Assume ntasks_per_node == 1 (We can't check whether it is or not)
-        return comm.Get_size()
-    elif launcher is not None:
-        raise RuntimeError(f"launcher='{launcher}' is not supported")
+    if "WORLD_SIZE" in os.environ:
+        return int(os.environ['WORLD_SIZE'])
     else:
-        # prior is None -> NUM_NODES = 1
-        return int(os.environ.get("WORLD_SIZE", 1))
+        return torch.cuda.device_count()

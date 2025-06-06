@@ -11,6 +11,7 @@ import numpy as np
 import resampy
 import soundfile
 from tqdm import tqdm
+import librosa
 from typeguard import typechecked
 
 from espnet2.fileio.read_text import read_2columns_text
@@ -302,11 +303,13 @@ def main():
             if args.fs is not None and args.fs != rate:
                 # FIXME(kamo): To use sox?
                 try:
-                    wave = resampy.resample(wave, rate, args.fs, axis=0)
+                    # wave = resampy.resample(wave, rate, args.fs, axis=0)
+                    wave = librosa.resample(wave, orig_sr=rate, target_sr=args.fs, axis=0)
                 except:
                     logging.warning(
                         f"{uttid} is too short. Skip it for resampling. {wave.shape}"
                     )
+                    continue
                 rate = args.fs
                 save_asis = False
 

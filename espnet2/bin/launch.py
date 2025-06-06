@@ -105,17 +105,12 @@ def main(cmd=None):
 
     # Specify init_method:
     #   See: https://pytorch.org/docs/stable/distributed.html#initialization
-    if args.host is None and args.num_nodes <= 1:
+    if False: # args.host is None and args.num_nodes <= 1:
         # Automatically set init_method if num_node=1
         init_method = None
     else:
         if args.master_port is None:
-            # Try "shared-file system initialization" if master_port is not specified
-            # Give random name to avoid reusing previous file
-            init_file = args.init_file_prefix + str(uuid.uuid4())
-            init_file = Path(init_file).absolute()
-            Path(init_file).parent.mkdir(exist_ok=True, parents=True)
-            init_method = ["--dist_init_method", f"file://{init_file}"]
+            init_method = []
         else:
             init_method = ["--dist_master_port", str(args.master_port)]
 
