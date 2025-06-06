@@ -48,3 +48,6 @@ asr_time_mask_config:
 use_deepspeed: true
 deepspeed_config: conf/deepspeed_ddp_zero1.json
 deepspeed_step_sync: false
+
+freeze_param:
+  - corelm.decoders

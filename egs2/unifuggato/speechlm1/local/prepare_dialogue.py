@@ -242,12 +242,12 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
             assert isinstance(caption, str)
             if task == "text-to-audio":
                 dialogue.add_segment("user", "text_bpe", False, caption)
-                dialogue.add_segment("assistant", "codec", True, clip_index)
+                dialogue.add_segment("assistant", 'codec_ssl', True, clip_index)
             elif task == "continuous_audio_caption":
                 dialogue.add_segment("user", "speech_ssl_encoder", False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
             else:
-                dialogue.add_segment("user", "codec", False, clip_index)
+                dialogue.add_segment("user", "codec_ssl", False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
 
         else:

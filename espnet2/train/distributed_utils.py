@@ -305,6 +305,9 @@ def get_local_rank(prior=None, launcher: Optional[str] = None) -> Optional[int]:
 
 def get_master_addr(prior=None, launcher: Optional[str] = None) -> Optional[str]:
     if prior is None:
+        if os.environ.get("MASTER_ADDR", None) is not None:
+            return os.environ["MASTER_ADDR"]
+
         if launcher == "slurm":
             if not is_in_slurm_step():
                 raise RuntimeError("This process seems not to be launched by 'srun'")
@@ -322,6 +325,8 @@ def get_master_addr(prior=None, launcher: Optional[str] = None) -> Optional[str]
 def get_master_port(prior=None) -> Optional[int]:
     if prior is not None:
         return prior
+    if os.environ.get("MASTER_PORT", None) is not None:
+        return int(os.environ["MASTER_PORT"])
     else:
         return _int_or_none(os.environ.get("MASTER_PORT"))
 

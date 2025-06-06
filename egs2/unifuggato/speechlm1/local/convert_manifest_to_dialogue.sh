@@ -21,6 +21,7 @@ dataname=
 tokenization_task="audiolm" # audiolm for codec-only; codec_ssl_audiolm for codec+ssl
 tasks="text-to-audio"
 tokenization_opts=
+maxlen=120
 
 log "$0 $*"
 . utils/parse_options.sh
@@ -59,6 +60,10 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
             cat data/${dataname}_${dset}/${file}
         done | sort | uniq > data/${dataname}_all/${file}
     done
+
+    mv data/${dataname}_all/segments data/${dataname}_all/segments.orig
+    awk -v threshold=${maxlen} '$4 - $3 < threshold' data/${dataname}_all/segments.orig \
+      > data/${dataname}_all/segments
     
 fi
 
