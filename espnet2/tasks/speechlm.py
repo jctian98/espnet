@@ -37,7 +37,8 @@ from espnet2.torch_utils.initialize import initialize
 from espnet2.speechlm.continuous_encoder.continuous_encoder import (
     AbsContinuousEncoder,
     HuggingfaceVisionEncoder,
-    Qwen2AudioEncoder,
+    HFQwen2AudioEncoder,
+    HFTextEncoder,
 )
 
 # Others
@@ -98,7 +99,16 @@ vision_encoder_choices = ClassChoices(
 speech_ssl_encoder_choices = ClassChoices(
     "speech_ssl_encoder",
     classes=dict(
-        qwen2audio=Qwen2AudioEncoder,
+        qwen2audio=HFQwen2AudioEncoder,
+    ),
+    type_check=AbsContinuousEncoder,
+    default=None,
+)
+
+text_encoder_choices = ClassChoices(
+    "text_encoder",
+    classes=dict(
+        hf=HFTextEncoder
     ),
     type_check=AbsContinuousEncoder,
     default=None,
@@ -131,6 +141,8 @@ class SpeechLMTask(AbsTask):
         vision_encoder_choices,
         # --speech_ssl_encoder and --speech_ssl_encoder_conf
         speech_ssl_encoder_choices,
+        # --text_encoder and --text_encoder_conf
+        text_encoder_choices,
         # --model and --model_conf
         model_choices,
     ]
@@ -355,6 +367,7 @@ class SpeechLMTask(AbsTask):
             audio_modality=getattr(args, "audio_modality", "codec_ssl"),
             vision_encoder_processor_conf=getattr(args, "vision_encoder_conf", {}),
             speech_ssl_encoder_conf=getattr(args, "speech_ssl_encoder_conf", {}),
+            text_encoder_conf=getattr(args, "text_encoder_conf", {}),
             is_dpo=args.model == "dpo",
         )
 
@@ -418,9 +431,10 @@ class SpeechLMTask(AbsTask):
         
         # 2. Build continuous encoder
         continuous_encoders = dict()
-        for modality in ["vision_encoder"]:
+        for modality in ["vision_encoder", "speech_ssl_encoder", "text_encoder"]:
             if getattr(args, modality, None) is not None:
-                continuous_encoder_class = vision_encoder_choices.get_class(
+                choices = globals()[f"{modality}_choices"]
+                continuous_encoder_class = choices.get_class(
                     getattr(args, modality)
                 )
                 continuous_encoders[modality] = continuous_encoder_class(

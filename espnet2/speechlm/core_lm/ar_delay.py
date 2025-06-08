@@ -151,7 +151,7 @@ class ARDelayLM(ARParallelLM):
 
             # (3.3) detect ended hypotheses
             finish_idx = torch.where(
-                torch.logical_and(prev_tok[:, 0, 0] == config.eos, finish_idx == -1),
+                torch.logical_and(gen_tok[:, 0, 0] == config.eos, finish_idx == -1),
                 step,
                 finish_idx,
             )

@@ -62,8 +62,7 @@ class AbsContinuousEncoder(torch.nn.Module):
             feats, batch_idxs, time_idxs, durations
         ):
             assert feat.dim() == 2
-            assert feat.size(0) == duration
-            emb[batch_idx, time_idx: time_idx + duration] = feat
+            emb[batch_idx, time_idx: time_idx + duration] = feat[:duration]
 
         return emb
 
@@ -79,7 +78,6 @@ class HuggingfaceVisionEncoder(AbsContinuousEncoder):
     def __init__(
         self, 
         hf_tag,
-        freeze: bool = True,
         connector_choice: str = "linear",
     ):
         super(HuggingfaceVisionEncoder, self).__init__()
@@ -96,36 +94,91 @@ class HuggingfaceVisionEncoder(AbsContinuousEncoder):
             raise NotImplementedError(f"HF Tag {hf_tag} is not supported yet")
         
         self.connector_choice = connector_choice
-
-        if freeze:
-            for param in self.model.parameters():
-                param.requires_grad = False
         
     def forward_encoder(self, feat_list: list):
         feats = torch.stack(feat_list, dim=0)
         feats = self.model(feats).last_hidden_state
         return feats
 
-class Qwen2AudioEncoder(AbsContinuousEncoder):
+class HFQwen2AudioEncoder(AbsContinuousEncoder):
     """ A warpper for Qwen2Audio Encoder """
     def __init__(
         self,
+        hf_tag,
         checkpoint,
-        fs,
+        connector_choice: str = "linear",
+        attention_choice: str = "sdpa"
     ):
+        super(HFQwen2AudioEncoder, self).__init__()
+        
+        assert hf_tag == "Qwen/Qwen2-Audio-7B", "hf_tag should only be Qwen/Qwen2-Audio-7B"
+
         try:
             from transformers import Qwen2AudioEncoder, AutoFeatureExtractor
         except ImportError:
             raise ImportError(f"Cannot import Qwen2AudioEncoder object")
         
-        self.model = Qwen2AudioEncoder.from_pretrained(checkpoint)
-        self.feature_extractor = AutoFeatureExtractor.from_pretrained(
-            checkpoint, sampling_rate=fs,
+        self.model = Qwen2AudioEncoder.from_pretrained(
+            checkpoint,
+            attn_implementation=attention_choice,
         )
-
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(hf_tag)
         self.n_samples = self.feature_extractor.n_samples
-        self.fs = fs
+
+        self.connector_choice = connector_choice
+        self.connector_idim = 1280 # empirical, hard code
     
     def forward_encoder(self, feat_list: list):
-        pass
+        # NOTE(Jinchuan): Assume all feats are of the same shape, aka, 30s
+        feats = torch.stack(feat_list, dim=0)
+        feats = self.model(input_features=feats)['last_hidden_state']
+        
+        return feats
 
+class HFTextEncoder(AbsContinuousEncoder):
+    """ A warpper for Qwen2Audio Encoder """
+    def __init__(
+        self,
+        hf_tag,
+        connector_choice: str = "linear",
+    ):
+        super(HFTextEncoder, self).__init__()
+
+        if hf_tag.startswith("google-t5"):
+            try:
+                from transformers import AutoTokenizer, T5EncoderModel
+            except ImportError:
+                raise ImportError("Cannot import T5Encoder")
+            
+            self.processor = AutoTokenizer.from_pretrained(
+                hf_tag,
+                use_fast=True
+            )
+            self.model = T5EncoderModel.from_pretrained(
+                hf_tag,
+            )
+        else:
+            raise NotImplementedError
+        
+        self.connector_choice = connector_choice
+        self.connector_idim = self.model.config.d_model
+    
+    def forward_encoder(self, feat_list: list):
+        assert all([isinstance(feat, str) for feat in feat_list]), feat_list
+
+        tokenized = self.processor(
+            feat_list,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512
+        )
+
+        tokenized = {
+            k: v.cuda() for k, v in tokenized.items() if isinstance(v, torch.Tensor)
+        }
+        output = self.model(**tokenized).last_hidden_state
+
+        return output
+
+        
