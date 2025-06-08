@@ -2534,6 +2534,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 self.speech_ssl_n_samples = self.speech_ssl_processor.n_samples
                 self.speech_ssl_sampling_rate = self.speech_ssl_processor.sampling_rate
                 self.speech_ssl_down_sample = 4 # hard code for this model.
+                self.speech_ssl_hop_length = self.speech_ssl_processor.hop_length
             else:
                 raise ValueError(
                     f"Cannot recognize speech_ssl_encoder {speech_ssl_encoder}"
@@ -2815,13 +2816,12 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 )
             assert array.ndim == 1, "Only single-channel audio is allowed"
 
-            array = np.repeat(array, 7)
-
-            segments = []
+            segments, conti_len = [], []
             while array.shape[0] > 0:
                 min_len = min(array.shape[0], self.speech_ssl_n_samples)
                 segments.append(array[:min_len])
                 array = array[min_len:]
+                conti_len.append(min_len)
             
             output = self.speech_ssl_processor(
                 segments,
@@ -2833,7 +2833,10 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             )['input_features']
 
             conti_feat = [feat for feat in output]
-            conti_len = [feat.shape[1] // self.speech_ssl_down_sample for feat in conti_feat]
+            conti_len = [
+                length // (self.speech_ssl_hop_length * self.speech_ssl_down_sample)
+                for length in conti_len
+            ]
             value = self.special_token("<pad>")
             value = np.repeat(value, sum(conti_len))
 

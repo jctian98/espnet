@@ -37,7 +37,7 @@ from espnet2.torch_utils.initialize import initialize
 from espnet2.speechlm.continuous_encoder.continuous_encoder import (
     AbsContinuousEncoder,
     HuggingfaceVisionEncoder,
-    Qwen2AudioEncoder,
+    HFQwen2AudioEncoder,
 )
 
 # Others
@@ -98,7 +98,7 @@ vision_encoder_choices = ClassChoices(
 speech_ssl_encoder_choices = ClassChoices(
     "speech_ssl_encoder",
     classes=dict(
-        qwen2audio=Qwen2AudioEncoder,
+        qwen2audio=HFQwen2AudioEncoder,
     ),
     type_check=AbsContinuousEncoder,
     default=None,
@@ -418,9 +418,10 @@ class SpeechLMTask(AbsTask):
         
         # 2. Build continuous encoder
         continuous_encoders = dict()
-        for modality in ["vision_encoder"]:
+        for modality in ["vision_encoder", "speech_ssl_encoder"]:
             if getattr(args, modality, None) is not None:
-                continuous_encoder_class = vision_encoder_choices.get_class(
+                choices = globals()[f"{modality}_choices"]
+                continuous_encoder_class = choices.get_class(
                     getattr(args, modality)
                 )
                 continuous_encoders[modality] = continuous_encoder_class(

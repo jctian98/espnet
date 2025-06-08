@@ -62,8 +62,7 @@ class AbsContinuousEncoder(torch.nn.Module):
             feats, batch_idxs, time_idxs, durations
         ):
             assert feat.dim() == 2
-            assert feat.size(0) == duration
-            emb[batch_idx, time_idx: time_idx + duration] = feat
+            emb[batch_idx, time_idx: time_idx + duration] = feat[:duration]
 
         return emb
 
@@ -79,7 +78,6 @@ class HuggingfaceVisionEncoder(AbsContinuousEncoder):
     def __init__(
         self, 
         hf_tag,
-        freeze: bool = True,
         connector_choice: str = "linear",
     ):
         super(HuggingfaceVisionEncoder, self).__init__()
@@ -96,36 +94,40 @@ class HuggingfaceVisionEncoder(AbsContinuousEncoder):
             raise NotImplementedError(f"HF Tag {hf_tag} is not supported yet")
         
         self.connector_choice = connector_choice
-
-        if freeze:
-            for param in self.model.parameters():
-                param.requires_grad = False
         
     def forward_encoder(self, feat_list: list):
         feats = torch.stack(feat_list, dim=0)
         feats = self.model(feats).last_hidden_state
         return feats
 
-class Qwen2AudioEncoder(AbsContinuousEncoder):
+class HFQwen2AudioEncoder(AbsContinuousEncoder):
     """ A warpper for Qwen2Audio Encoder """
     def __init__(
         self,
+        hf_tag,
         checkpoint,
-        fs,
+        connector_choice,
     ):
+        super(HFQwen2AudioEncoder, self).__init__()
+        
+        assert hf_tag == "Qwen/Qwen2-Audio-7B", "hf_tag should only be Qwen/Qwen2-Audio-7B"
+
         try:
             from transformers import Qwen2AudioEncoder, AutoFeatureExtractor
         except ImportError:
             raise ImportError(f"Cannot import Qwen2AudioEncoder object")
         
         self.model = Qwen2AudioEncoder.from_pretrained(checkpoint)
-        self.feature_extractor = AutoFeatureExtractor.from_pretrained(
-            checkpoint, sampling_rate=fs,
-        )
-
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(hf_tag)
         self.n_samples = self.feature_extractor.n_samples
-        self.fs = fs
+
+        self.connector_choice = connector_choice
+        self.connector_idim = 1280 # empirical, hard code
     
     def forward_encoder(self, feat_list: list):
-        pass
+        # NOTE(Jinchuan): Assume all feats are of the same shape, aka, 30s
+        feats = torch.stack(feat_list, dim=0)
+        feats = self.model(input_features=feats)['last_hidden_state']
+        
+        return feats
 

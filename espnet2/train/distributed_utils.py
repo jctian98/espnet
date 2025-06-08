@@ -29,17 +29,17 @@ class DistributedOption:
 
     def init_options(self):
         if self.distributed:
-            if self.dist_init_method == "env://":
-                if get_master_addr(self.dist_master_addr, self.dist_launcher) is None:
-                    raise RuntimeError(
-                        "--dist_master_addr or MASTER_ADDR must be set "
-                        "if --dist_init_method == 'env://'"
-                    )
-                if get_master_port(self.dist_master_port) is None:
-                    raise RuntimeError(
-                        "--dist_master_port or MASTER_PORT must be set "
-                        "if --dist_init_port == 'env://'"
-                    )
+            # if self.dist_init_method == "env://":
+            #     if get_master_addr(self.dist_master_addr, self.dist_launcher) is None:
+            #         raise RuntimeError(
+            #             "--dist_master_addr or MASTER_ADDR must be set "
+            #             "if --dist_init_method == 'env://'"
+            #         )
+            #     if get_master_port(self.dist_master_port) is None:
+            #         raise RuntimeError(
+            #             "--dist_master_port or MASTER_PORT must be set "
+            #             "if --dist_init_port == 'env://'"
+            #         )
 
             # About priority order:
             # If --dist_* is specified:
@@ -360,8 +360,10 @@ def get_node_rank(prior=None, launcher: Optional[str] = None) -> Optional[int]:
         return comm.Get_rank()
     elif launcher is not None:
         raise RuntimeError(f"launcher='{launcher}' is not supported")
+    elif os.environ.get("RANK", None) is not None:
+         return int(os.environ["RANK"])
     else:
-        return _int_or_none(os.environ.get("RANK"))
+         return torch.cuda.device_count()
 
 
 def get_num_nodes(prior=None, launcher: Optional[str] = None) -> Optional[int]:
