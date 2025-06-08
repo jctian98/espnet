@@ -2409,6 +2409,8 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         vision_encoder_processor_conf: Optional[dict] = {},
         # speech_ssl_encoder
         speech_ssl_encoder_conf: Optional[dict] = {},
+        # text_encoder
+        text_encoder_conf: Optional[dict] = {},
         # others
         n_ctx: int = 4096,
         inter_segment_pad: int = 0,
@@ -2542,6 +2544,21 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         else:
             self.speech_ssl_processor = None
             self.speech_ssl_n_samples = 0
+        
+        # text_encoder
+        text_encoder = text_encoder_conf.get("hf_tag", None)
+        if text_encoder is not None:
+            try:
+                from transformers import AutoTokenizer
+            except:
+                raise ImportError("Cannot import HF AutoTokenizer")
+            
+            self.text_encoder_processor = AutoTokenizer.from_pretrained(
+                text_encoder,
+                use_fast=True,
+            )
+        else:
+            self.text_encoder_processor = None
 
         # extra entries
         self.extra_names_and_modalities = [
@@ -2839,6 +2856,23 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             ]
             value = self.special_token("<pad>")
             value = np.repeat(value, sum(conti_len))
+        
+        elif modality in ['text_encoder']:
+            # NOTE(Jinchuan): use HF tokenizer to tokenize the text. We only need the
+            # length here. The exact tokenization happens in the continuous encoder.
+            tokens = self.text_encoder_processor(
+                value,
+                return_tensors='np',
+                padding=True,
+                truncation=True,
+                max_length=128,
+            )['input_ids'][0]
+
+            conti_feat = [value]
+            conti_len = [len(tokens)]
+            
+            value = self.special_token("<pad>")
+            value = np.repeat(value, sum(conti_len))
 
         else:
             raise NotImplementedError(f"Modality: {modality}")
@@ -2929,9 +2963,15 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         
         for conti_feat in data.get('conti_feats'):
             feat, modality, start, length = conti_feat
-            logging.warning(
-                f"continuous_feature: shape={feat.shape}, modality={modality} "
-                f"start={start}, length={length} "
-            )
+            if isinstance(feat, str):
+                logging.warning(
+                    f"continuous_feature: text={feat}, modality={modality} "
+                    f"start={start}, length={length} "
+                )
+            else:
+                    logging.warning(
+                    f"continuous_feature: shape={feat.shape}, modality={modality} "
+                    f"start={start}, length={length} "
+                )
 
         raise ValueError("End of Diagnose")

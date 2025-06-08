@@ -106,7 +106,8 @@ class HFQwen2AudioEncoder(AbsContinuousEncoder):
         self,
         hf_tag,
         checkpoint,
-        connector_choice,
+        connector_choice: str = "linear",
+        attention_choice: str = "sdpa"
     ):
         super(HFQwen2AudioEncoder, self).__init__()
         
@@ -117,7 +118,10 @@ class HFQwen2AudioEncoder(AbsContinuousEncoder):
         except ImportError:
             raise ImportError(f"Cannot import Qwen2AudioEncoder object")
         
-        self.model = Qwen2AudioEncoder.from_pretrained(checkpoint)
+        self.model = Qwen2AudioEncoder.from_pretrained(
+            checkpoint,
+            attn_implementation=attention_choice,
+        )
         self.feature_extractor = AutoFeatureExtractor.from_pretrained(hf_tag)
         self.n_samples = self.feature_extractor.n_samples
 
@@ -131,3 +135,50 @@ class HFQwen2AudioEncoder(AbsContinuousEncoder):
         
         return feats
 
+class HFTextEncoder(AbsContinuousEncoder):
+    """ A warpper for Qwen2Audio Encoder """
+    def __init__(
+        self,
+        hf_tag,
+        connector_choice: str = "linear",
+    ):
+        super(HFTextEncoder, self).__init__()
+
+        if hf_tag.startswith("google-t5"):
+            try:
+                from transformers import AutoTokenizer, T5EncoderModel
+            except ImportError:
+                raise ImportError("Cannot import T5Encoder")
+            
+            self.processor = AutoTokenizer.from_pretrained(
+                hf_tag,
+                use_fast=True
+            )
+            self.model = T5EncoderModel.from_pretrained(
+                hf_tag,
+            )
+        else:
+            raise NotImplementedError
+        
+        self.connector_choice = connector_choice
+        self.connector_idim = self.model.config.d_model
+    
+    def forward_encoder(self, feat_list: list):
+        assert all([isinstance(feat, str) for feat in feat_list]), feat_list
+
+        tokenized = self.processor(
+            feat_list,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512
+        )
+
+        tokenized = {
+            k: v.cuda() for k, v in tokenized.items() if isinstance(v, torch.Tensor)
+        }
+        output = self.model(**tokenized).last_hidden_state
+
+        return output
+
+        

@@ -38,6 +38,7 @@ from espnet2.speechlm.continuous_encoder.continuous_encoder import (
     AbsContinuousEncoder,
     HuggingfaceVisionEncoder,
     HFQwen2AudioEncoder,
+    HFTextEncoder,
 )
 
 # Others
@@ -104,6 +105,15 @@ speech_ssl_encoder_choices = ClassChoices(
     default=None,
 )
 
+text_encoder_choices = ClassChoices(
+    "text_encoder",
+    classes=dict(
+        hf=HFTextEncoder
+    ),
+    type_check=AbsContinuousEncoder,
+    default=None,
+)
+
 model_choices = ClassChoices(
     "model",
     classes=dict(
@@ -131,6 +141,8 @@ class SpeechLMTask(AbsTask):
         vision_encoder_choices,
         # --speech_ssl_encoder and --speech_ssl_encoder_conf
         speech_ssl_encoder_choices,
+        # --text_encoder and --text_encoder_conf
+        text_encoder_choices,
         # --model and --model_conf
         model_choices,
     ]
@@ -355,6 +367,7 @@ class SpeechLMTask(AbsTask):
             audio_modality=getattr(args, "audio_modality", "codec_ssl"),
             vision_encoder_processor_conf=getattr(args, "vision_encoder_conf", {}),
             speech_ssl_encoder_conf=getattr(args, "speech_ssl_encoder_conf", {}),
+            text_encoder_conf=getattr(args, "text_encoder_conf", {}),
             is_dpo=args.model == "dpo",
         )
 
@@ -418,7 +431,7 @@ class SpeechLMTask(AbsTask):
         
         # 2. Build continuous encoder
         continuous_encoders = dict()
-        for modality in ["vision_encoder", "speech_ssl_encoder"]:
+        for modality in ["vision_encoder", "speech_ssl_encoder", "text_encoder"]:
             if getattr(args, modality, None) is not None:
                 choices = globals()[f"{modality}_choices"]
                 continuous_encoder_class = choices.get_class(

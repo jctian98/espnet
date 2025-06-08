@@ -31,6 +31,7 @@ MODALITIES["image"] = Modality()
 MODALITIES["speech_ssl_encoder"] = Modality(discrete=False)
 MODALITIES["speech_codec_encoder"] = Modality(discrete=False)
 MODALITIES["vision_encoder"] = Modality(discrete=False)
+MODALITIES["text_encoder"] = Modality(discrete=False)
 
 # dialogue
 MODALITIES["dialogue"] = Modality()

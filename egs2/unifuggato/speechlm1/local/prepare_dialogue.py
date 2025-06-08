@@ -165,7 +165,12 @@ def get_parser():
     parser.add_argument(
         '--task',
         type=str,
-        choices=['text-to-audio', 'audio-to-text', 'continuous_audio_caption'],
+        choices=[
+            'text-to-audio',
+            'audio-to-text',
+            'continuous_audio_caption',
+            "continuous_audio_generation",
+        ],
         help='Output directory',
     )
 
@@ -183,7 +188,7 @@ def main():
         valid_examples.extend(this_valid_examples)
 
     valid_output_dir = args.dumpdir.parent / f"raw_audio_dialogue_{args.prefix}" 
-    valid_output_dir = valid_output_dir / f"{args.prefix}_valid"
+    valid_output_dir = valid_output_dir / f"{args.prefix}_valid_{args.task}"
     valid_dataset = DialogueDataset(task="audio_dialogue")
 
     for example_id, dialogue in valid_examples:
@@ -243,6 +248,11 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
             if task == "text-to-audio":
                 dialogue.add_segment("user", "text_bpe", False, caption)
                 dialogue.add_segment("assistant", 'codec_ssl', True, clip_index)
+            
+            elif task == "continuous_audio_generation":
+                dialogue.add_segment("user", "text_encoder", False, caption)
+                dialogue.add_segment("assistant", 'codec_ssl', True, clip_index)
+            
             elif task == "continuous_audio_caption":
                 dialogue.add_segment("user", "speech_ssl_encoder", False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
