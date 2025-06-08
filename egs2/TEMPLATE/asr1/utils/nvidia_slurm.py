@@ -131,7 +131,7 @@ def main():
     (job_start, job_end), command_list, log_file = parse_commands()
     results = []
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=256) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=512) as executor:
         # Submit all commands to be executed
         # future_to_cmd = {executor.submit(execute_command, cmd): cmd for cmd in command_list}
         future_to_cmd = dict()

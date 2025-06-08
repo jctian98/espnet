@@ -19,7 +19,7 @@
       }
     },
     "zero_optimization": {
-      "stage": 2,
+      "stage": 1,
       "allgather_partitions": true,
       "allgather_bucket_size": 1000000000,
       "reduce_scatter": true,

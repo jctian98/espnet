@@ -183,7 +183,7 @@ def main():
         valid_examples.extend(this_valid_examples)
 
     valid_output_dir = args.dumpdir.parent / f"raw_audio_dialogue_{args.prefix}" 
-    valid_output_dir = valid_output_dir / f"{args.prefix}_valid"
+    valid_output_dir = valid_output_dir / f"{args.prefix}_valid_{args.task}"
     valid_dataset = DialogueDataset(task="audio_dialogue")
 
     for example_id, dialogue in valid_examples:
@@ -246,9 +246,11 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
             elif task == "continuous_audio_caption":
                 dialogue.add_segment("user", "speech_ssl_encoder", False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
-            else:
+            elif task == "audio-to-text":
                 dialogue.add_segment("user", "codec_ssl", False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
+            else:
+                raise NotImplementedError(f"Not implemented task: {task}")
 
         else:
             raise NotImplementedError    

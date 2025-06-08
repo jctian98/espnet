@@ -71,26 +71,26 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     log "Tokenization"
 
     # First, dump all audio to disk
-    bash run.sh \
-    --stage 2 \
-    --stop_stage 2 \
-    --nj ${nj} \
-    --dumpdir ${dumpdir} \
-    --task ${tokenization_task} \
-    --train_set ${dataname}_all \
-    --data_name ${dataname} \
-    ${tokenization_opts}
-
-    # Second, tokenization
     # bash run.sh \
-    # --stage 5 \
-    # --stop_stage 5 \
+    # --stage 2 \
+    # --stop_stage 2 \
     # --nj ${nj} \
     # --dumpdir ${dumpdir} \
     # --task ${tokenization_task} \
     # --train_set ${dataname}_all \
     # --data_name ${dataname} \
     # ${tokenization_opts}
+
+    # Second, tokenization
+    bash run.sh \
+    --stage 5 \
+    --stop_stage 5 \
+    --nj ${nj} \
+    --dumpdir ${dumpdir} \
+    --task ${tokenization_task} \
+    --train_set ${dataname}_all \
+    --data_name ${dataname} \
+    ${tokenization_opts}
 fi
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
