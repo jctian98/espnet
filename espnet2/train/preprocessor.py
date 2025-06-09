@@ -2865,7 +2865,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 return_tensors='np',
                 padding=True,
                 truncation=True,
-                max_length=128,
+                max_length=512,
             )['input_ids'][0]
 
             conti_feat = [value]
