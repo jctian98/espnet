@@ -144,7 +144,7 @@ class HFTextEncoder(AbsContinuousEncoder):
     ):
         super(HFTextEncoder, self).__init__()
 
-        if hf_tag.startswith("google-t5"):
+        if hf_tag.startswith("google-t5/t5") or hf_tag.startswith("google/flan-t5"):
             try:
                 from transformers import AutoTokenizer, T5EncoderModel
             except ImportError:
