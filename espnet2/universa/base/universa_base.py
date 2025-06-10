@@ -136,11 +136,12 @@ class UniversaBase(AbsUniversa):
         super().__init__()
 
         # Backforward compatibility checks
-        for key in metric2type.keys():
-            if metric2type[key] != "numerical":
-                raise ValueError(
-                    f"metric2type should be numerical for universa-base, but got {metric2type[key]}"
-                )
+        if metric2type is not None:
+            for key in metric2type.keys():
+                if metric2type[key] != "numerical":
+                    raise ValueError(
+                        f"metric2type should be numerical for universa-base, but got {metric2type[key]}"
+                    )
         if sequential_metrics:
             raise ValueError(
                 "sequential_metrics is not supported for universa-base, please set it to False"

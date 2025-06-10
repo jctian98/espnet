@@ -304,6 +304,8 @@ class UniversaTask(AbsTask):
 
         if args.metric2type is not None:
             metric2type = parse_metrics_meta(args.metric2type, return_list=False)
+        else:
+            metric2type = None
 
         if args.use_preprocessor:
             retval = UniversaProcessor(
@@ -315,7 +317,7 @@ class UniversaTask(AbsTask):
                 text_cleaner=args.cleaner,
                 g2p_type=args.g2p,
                 metric2type=metric2type,
-                metric_token_info=args.metric_token_info,
+                metric_token_info=args.metric_token_info if hasattr(args, "metric_token_info") else {},
                 tokenize_numerical_metric=args.tokenize_numerical_metric,
                 reduce_offset=not args.sequential_metric,
             )
@@ -364,11 +366,13 @@ class UniversaTask(AbsTask):
             if args.metric2type
             else None
         )
-        if args.tokenize_numerical_metric:
+
+        # NOTE(jiatong): first check the existance of the variable for UniVERSA models
+        if hasattr(args, "tokenize_numerical_metric") and args.tokenize_numerical_metric:
             metric2type = {k: "categorical" for k, v in metric2type.items()}
 
         # Process metric token list
-        if args.metric_token_info is not None:
+        if hasattr(args, "metric_token_info") and args.metric_token_info is not None:
             if isinstance(args.metric_token_info, str):
                 with open(args.metric_token_info, "r") as f:
                     metric_token_info = json.load(f)
@@ -381,6 +385,7 @@ class UniversaTask(AbsTask):
             logging.info("Metric vocabulary size: " + str(metric_vocab_size))
 
         else:
+            metric_token_info = {}
             metric_vocab_size = None
 
         # Process text token list
@@ -417,11 +422,11 @@ class UniversaTask(AbsTask):
             use_ref_audio=args.use_ref_audio,
             use_ref_text=args.use_ref_text,
             metric_pad_value=args.metric_pad_value,
-            metric_token_pad_value=args.metric_token_pad_value,
+            metric_token_pad_value=args.metric_token_pad_value if hasattr(args, "metric_token_pad_value") else -1,
             metric2type=metric2type,
             metric_vocab_size=metric_vocab_size,
             metric_token_info=metric_token_info,
-            sequential_metrics=args.sequential_metric,
+            sequential_metrics=args.sequential_metric if hasattr(args, "seqeuntial_metric") else False,
             **args.universa_conf,
         )
 
