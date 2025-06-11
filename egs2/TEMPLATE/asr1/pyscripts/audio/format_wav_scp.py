@@ -296,6 +296,8 @@ def main():
             save_asis = True
 
             if wavpath is None:
+                # FIXME(jiatong): need to fix for segment cases 
+                # (segments also return None for wavpath)
                 fnum_samples.write(f"{uttid} 8000\n")
                 continue
 
