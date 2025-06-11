@@ -426,7 +426,7 @@ class UniversaTask(AbsTask):
             metric2type=metric2type,
             metric_vocab_size=metric_vocab_size,
             metric_token_info=metric_token_info,
-            sequential_metrics=args.sequential_metric if hasattr(args, "seqeuntial_metric") else False,
+            sequential_metrics=args.sequential_metric if hasattr(args, "sequential_metric") else False,
             **args.universa_conf,
         )
 
