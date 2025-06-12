@@ -158,8 +158,19 @@ def get_parser():
         help='All the manifest files',
     )
     parser.add_argument(
+        '--mapping',
+        type=Path,
+        help='The mapping file for duplicated audio files',
+    )
+    parser.add_argument(
         '--prefix',
         type=str,
+        help='The name of the dataset',
+    )
+    parser.add_argument(
+        '--audio_modality',
+        type=str,
+        choices=["codec", "codec_ssl"],
         help='The name of the dataset',
     )
     parser.add_argument(
@@ -180,10 +191,36 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
 
+    # mapping
+    mapping = dict()
+    for line in open(args.mapping):
+        line = line.strip().split()
+        mapping[line[0]] = line[1:]
+    
+    # read wav.scp. Identical audio files will have the same placeholder
+    wav_scp_file = args.dumpdir / f"{args.prefix}_all" / 'wav.scp'
+    if args.task == "continuous_audio_caption":
+        wav_scp_file = str(wav_scp_file).replace("/raw_", "/audio_raw_")
+    
+    wav_scp = dict()
+    for line in open(wav_scp_file):
+        uttid, content = line.strip().split()
+        assert uttid in mapping
+        for real_uttid in mapping[uttid]:
+            wav_scp[real_uttid] = content
+
+    # work on each manifest
     valid_examples = list()
+
     for manifest in args.manifests:
+        print(f'processing manifest {manifest}')
         this_valid_examples = process_one_manifest(
-            manifest, args.dumpdir, args.prefix, args.task
+            manifest, 
+            args.dumpdir, 
+            args.prefix, 
+            args.task,
+            wav_scp, 
+            args.audio_modality,
         )
         valid_examples.extend(this_valid_examples)
 
@@ -195,19 +232,10 @@ def main():
         valid_dataset.add_dialogue(example_id, dialogue)
     valid_dataset.dump_dataset(valid_output_dir)
 
-def process_one_manifest(manifest, dumpdir, prefix, task):
+def process_one_manifest(manifest, dumpdir, prefix, task, wav_scp, audio_modality):
     subset_name = Path(manifest).stem
-    if subset_name == "train":
+    if subset_name == "train" or subset_name == "train_2":
         subset_name = Path(manifest).parent.stem
-    
-    # read wav.scp
-    wav_scp_file = dumpdir / f"{prefix}_all" / 'wav.scp'
-    if task == "continuous_audio_caption":
-        wav_scp_file = str(wav_scp_file).replace("/raw_", "/audio_raw_")
-    wav_scp = dict()
-    for line in open(wav_scp_file):
-        uttid, content = line.strip().split()
-        wav_scp[uttid] = content
     
     # define output_dir
     output_dir = dumpdir.parent / f"raw_audio_dialogue_{prefix}" / f"{prefix}_{subset_name}_{task}"
@@ -220,7 +248,7 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
         json_list = [json.loads(line) for line in open(manifest)]
     
     # prompts
-    if task == "text-to-audio":
+    if task == "text-to-audio" or "continuous_audio_generation":
         prompts = tta_prompts
     else:
         prompts = att_prompts
@@ -231,7 +259,7 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
     for idx, example in enumerate(json_list):
         example_id = f"{prefix}_{subset_name}_{idx}"
         if example_id not in wav_scp:
-            print(f"No tokenized audio found for example: {example_id}")
+            print(f"No tokenized audio found for example: {example_id} {manifest}")
             continue
         
         clip_index = wav_scp[example_id]
@@ -247,20 +275,52 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
             assert isinstance(caption, str)
             if task == "text-to-audio":
                 dialogue.add_segment("user", "text_bpe", False, caption)
-                dialogue.add_segment("assistant", 'codec_ssl', True, clip_index)
+                dialogue.add_segment("assistant", audio_modality, True, clip_index)
             
             elif task == "continuous_audio_generation":
                 dialogue.add_segment("user", "text_encoder", False, caption)
-                dialogue.add_segment("assistant", 'codec_ssl', True, clip_index)
+                dialogue.add_segment("assistant", audio_modality, True, clip_index)
             
             elif task == "continuous_audio_caption":
                 dialogue.add_segment("user", "speech_ssl_encoder", False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
+            
             elif task == "audio-to-text":
-                dialogue.add_segment("user", "codec_ssl", False, clip_index)
+                dialogue.add_segment("user", audio_modality, False, clip_index)
                 dialogue.add_segment("assistant", "text_bpe", True, caption)
             else:
                 raise NotImplementedError(f"Not implemented task: {task}")
+        
+        # AF3 data
+        elif 'conversations' in example:
+            if task == "continuous_audio_caption":
+                audio_modality_ = "speech_ssl_encoder"
+            elif task == "audio-to-text":
+                audio_modality_ = audio_modality
+            else:
+                raise ValueError(f"Unsupported task: {task}")
+            
+            for message in example['conversations']:
+
+                if message['from'] == "human":
+                    role = "user"
+                elif message['from'] == 'gpt':
+                    role = "assistant"
+                else:
+                    raise ValueError(f"Unrecognized role: {message['from']}")
+                
+                text = message['value']
+
+                if "<sound>" in text or "<speech>" in text:
+                    assert role == "user", (example, message, role)
+                    text = text.replace("<sound>", "").replace("<speech>", "").replace("\n", "")
+
+                    dialogue.add_segment("user", "text_bpe", False, text)
+                    dialogue.add_segment("user", audio_modality_, False, clip_index)
+
+                else:
+                    assert role == "assistant", (example, message, role)
+                    dialogue.add_segment("assistant", "text_bpe", True, text)
 
         else:
             raise NotImplementedError    
@@ -269,8 +329,12 @@ def process_one_manifest(manifest, dumpdir, prefix, task):
         if random.random() < 0.0005:
             valid_examples.append((example_id, dialogue))
     
-    dataset.dump_dataset(output_dir)
-    return valid_examples
+    if len(dataset) > 256:
+        dataset.dump_dataset(output_dir)
+        return valid_examples
+    else:
+        print(f'Avoid including {manifest} as it is too small {len(dataset)}')
+        return []
 
 if __name__ == "__main__":
     main()

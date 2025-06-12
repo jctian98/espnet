@@ -96,7 +96,7 @@ def load_pretrained_model(
 
         obj = get_attr(model, dst_key)
 
-    src_state = torch.load(path, map_location=map_location)
+    src_state = torch.load(path, map_location=map_location, weights_only=False)
     if 'model' in src_state:
         src_state = src_state['model']
     elif 'module' in src_state: # NOTE(Jinchuan): deepspeed checkpoint

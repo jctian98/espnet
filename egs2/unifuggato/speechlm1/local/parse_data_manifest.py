@@ -27,6 +27,12 @@ def get_parser():
         type=Path,
         help='Output directory',
     )
+    parser.add_argument(
+        '--max_duration',
+        type=float,
+        default=120,
+        help='Maximum audio duration',
+    )
 
     return parser
 
@@ -34,21 +40,69 @@ def main():
     parser = get_parser()
     args =parser.parse_args()
 
+    # Process each folder
+    valid_dirs = list()
     for manifest in args.manifests:
-        process_one_manifest(manifest, args.output_dir, args.prefix)
+        dir = process_one_manifest(manifest, args.output_dir, args.prefix)
+        valid_dirs.append(dir)
+    
+    # build the unified segments and wav.scp file
+    output_dir = args.output_dir / f"{args.prefix}_all"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    wav_scp_writer = open(output_dir / "wav.scp", 'w')
+    segment_writer = open(output_dir / "segments", 'w')
+    mapping_wrtier = open(output_dir / "mapping", 'w')
+
+    wav_scp = set()
+    segments = dict()
+    mapping = dict()
+    for dir in valid_dirs:
+        for line in open(dir / 'wav.scp'):
+            wav_scp.add(line)
+
+        for line in open(dir / 'segments'):
+            line = line.strip().split()
+            assert len(line) == 4
+
+            start, end = float(line[2]), float(line[3])
+            if end - start > args.max_duration:
+                continue
+
+            key = tuple(line[1:])
+            if key not in segments:
+                placeholder = f"placeholder_{len(segments)}"
+                segments[key] = placeholder
+            else:
+                placeholder = segments[key]
+
+            if placeholder not in mapping:
+                mapping[placeholder] = []
+            mapping[placeholder].append(line[0])
+    
+    for line in wav_scp:
+        wav_scp_writer.write(line)
+    for key, placeholder in segments.items():
+        string = f"{placeholder} " + " ".join(key) + "\n"
+        segment_writer.write(string)
+    for placeholder, real_names in mapping.items():
+        string = f"{placeholder} " + " ".join(real_names) + "\n"
+        mapping_wrtier.write(string)
+    
+    print(f"Save all results in {str(output_dir)}")
+            
 
 def process_one_manifest(manifest, output_dir, prefix):
     # (1) subset name
     print(f'processing {manifest}', flush=True)
     subset_name = Path(manifest).stem
-    if subset_name == "train":
+    if subset_name == "train" or subset_name == "train_2":
         subset_name = Path(manifest).parent.stem
     output_dir = output_dir / f"{prefix}_{subset_name}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if (output_dir / '.done').exists():
         print('This dataset has been processed already')
-        return
+        return output_dir
     
     # (2) load whole dict 
     try:
@@ -127,6 +181,8 @@ def process_one_manifest(manifest, output_dir, prefix):
     
     # (6) mark as finished
     (output_dir / '.done').touch()
+
+    return output_dir
 
 
 def validate_audio(path, cache):

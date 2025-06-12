@@ -28,9 +28,13 @@ dumpdir=dump_fsq8_2k
 # tokenization_task="audiolm"
 # dumpdir=dump_xcodec
 
-codec_opts="--codec_choice xcodec --codec_checkpoint_path xcodec/checkpoint/model.pth         --codec_config_path xcodec/checkpoint/config.yaml         --codec_batch_size 50 "
-tokenization_task="codec_ssl_audiolm"
-dumpdir=dump_xcodec_af3
+# codec_opts="--codec_choice xcodec --codec_checkpoint_path xcodec/checkpoint/model.pth         --codec_config_path xcodec/checkpoint/config.yaml         --codec_batch_size 50 "
+# tokenization_task="codec_ssl_audiolm"
+# dumpdir=dump_xcodec_af3
+
+codec_opts="--codec_choice xcodec --codec_checkpoint_path xcodec/checkpoint/model.pth         --codec_config_path xcodec/checkpoint/config.yaml         --codec_batch_size 20 "
+tokenization_task="audiolm"
+dumpdir=dump_xcodec_v2
 
 log "$0 $*"
 . utils/parse_options.sh
@@ -56,13 +60,13 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     "
 
     bash local/convert_manifest_to_dialogue.sh \
-      --stage 1 \
+      --stage 3 \
       --stop_stage 3 \
-      --nj 128 \
+      --nj 100 \
       --manifests "${manifests}" \
       --dumpdir ${dumpdir} \
-      --dataname etta_v2 \
-      --tasks "text-to-audio audio-to-text continuous_audio_caption" \
+      --dataname etta \
+      --tasks "text-to-audio continuous_audio_generation" \
       --tokenization_task ${tokenization_task} \
       --tokenization_opts "${codec_opts}"
 
@@ -166,9 +170,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/CountingQA/train.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/DCASE-2025/train.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/SpeechSoundCaps/train.json \
-      /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/MSD-MusicQA/train_2.json \
       /lustre/fsw/portfolios/adlr/users/arushig/VILA-Internal/sift_100k.json \
-      /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data/SIFT/train_2.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/SpeechSoundCapsQA/train.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/GigaSpeech-Long-QA/train.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/TemporalQA/train.json \
@@ -255,16 +257,18 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/LP-MusicCaps-MTT-AudioCaptioning/train.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/GTZAN-GenreClassification/train.json \
       /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/musdbhq-captioning/train.json \
+      /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data_w_duration/MSD-MusicQA/train_2.json \
+      /lustre/fsw/portfolios/adlr/users/sreyang/iccv/audio_qa_data/SIFT/train_2.json \
     "
 
     bash local/convert_manifest_to_dialogue.sh \
-      --stage 2 \
-      --stop_stage 2 \
+      --stage 3 \
+      --stop_stage 3 \
       --nj 512 \
       --manifests "${manifests}" \
       --dumpdir ${dumpdir} \
       --dataname AF3 \
-      --tasks "audio-to-text" \
+      --tasks "continuous_audio_caption" \
       --tokenization_task ${tokenization_task} \
       --tokenization_opts "${codec_opts}"
 fi

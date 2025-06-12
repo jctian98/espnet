@@ -11,7 +11,7 @@ log() {
 }
 SECONDS=0
 
-stage=3
+stage=1
 stop_stage=3
 nj=16
 
@@ -35,7 +35,7 @@ find_stem() {
     local filename=$(basename "$file")
     local stem="${filename%.*}"
     
-    if [ "$stem" = "train" ]; then
+    if [ "$stem" = "train" ] || [ "$stem" = "train_2" ]; then
         local parent_dir=$(dirname "$file")
         local parent_stem=$(basename "$parent_dir")
         local parent_stem=${parent_stem%.*}
@@ -51,35 +51,21 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
       --manifests ${manifests} \
       --prefix ${dataname} \
       --output_dir data
-    
-    # aggregate all audio files
-    mkdir -p data/${dataname}_all
-    for file in wav.scp segments; do
-        for manifest in ${manifests}; do
-            dset=$(find_stem "$manifest")
-            cat data/${dataname}_${dset}/${file}
-        done | sort | uniq > data/${dataname}_all/${file}
-    done
-
-    mv data/${dataname}_all/segments data/${dataname}_all/segments.orig
-    awk -v threshold=${maxlen} '$4 - $3 < threshold' data/${dataname}_all/segments.orig \
-      > data/${dataname}_all/segments
-    
 fi
 
 if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     log "Tokenization"
 
     # First, dump all audio to disk
-    # bash run.sh \
-    # --stage 2 \
-    # --stop_stage 2 \
-    # --nj ${nj} \
-    # --dumpdir ${dumpdir} \
-    # --task ${tokenization_task} \
-    # --train_set ${dataname}_all \
-    # --data_name ${dataname} \
-    # ${tokenization_opts}
+    bash run.sh \
+    --stage 2 \
+    --stop_stage 2 \
+    --nj ${nj} \
+    --dumpdir ${dumpdir} \
+    --task ${tokenization_task} \
+    --train_set ${dataname}_all \
+    --data_name ${dataname} \
+    ${tokenization_opts}
 
     # Second, tokenization
     bash run.sh \
@@ -99,15 +85,18 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         python local/prepare_dialogue.py \
         --manifests ${manifests} \
         --dumpdir ${dumpdir}/raw_${tokenization_task}_${dataname} \
+        --mapping data/${dataname}_all/mapping \
         --prefix ${dataname} \
         --task $task
 
         for dset in `ls ${dumpdir}/raw_audio_dialogue_${dataname}`; do
             dir=${dumpdir}/raw_audio_dialogue_${dataname}/${dset}
-            python pyscripts/utils/make_speechlm_json.py \
-            --task audio_dialogue \
-            --file_modality_type ${dir}/dialogue,dialogue,dialogue_json \
-            --output_json ${dir}/data.json
+            if [ -f ${dir}/dialogue ]; then
+                python pyscripts/utils/make_speechlm_json.py \
+                --task audio_dialogue \
+                --file_modality_type ${dir}/dialogue,dialogue,dialogue_json \
+                --output_json ${dir}/data.json
+            fi
         done
     done
 fi
