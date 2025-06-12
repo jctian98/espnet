@@ -312,3 +312,45 @@ special_tokens = pad_until(special_tokens, 128)
 special_tokens = pad_until(special_tokens, 256)
 
 # END OF SPECIAL TOKEN DEFINITION #
+def task_template_helper(task: str):
+    if task not in SPEECHLM_TASKS:
+        raise ValueError(f"{task} is not a valid task")
+    if "dialogue" in task:
+        raise ValueError(f"dialogue task ({task}) is not supported yet")
+    
+    
+    string = f"SpeechLM for {task} task ... \n"
+    string += "Please input the data as a dict using the following format: \n"
+    string += "*" * 50 + "\n"
+    string += "data = {\n"
+    string += f"  task: {task},\n"
+
+    task = SPEECHLM_TASKS[task]
+    for name, modality, _type in task.data_triplets[:task.n_conditions]:
+        if modality in ["codec", "ssl", "codec_ssl", "spk"]:
+            string += f"  {name}: <path-to-audio> or 1D <np.array> or 1D <torch.Tensor>,\n"
+        elif modality in ["text_bpe"]:
+            string += f"  {name}: <text-string>,\n"
+        else:
+            raise ValueError("Unrecognized modality")
+    string += "}\n"
+    string += "result = model(data)\n"
+    string += "*" * 50 + "\n"
+
+    string += "You will receive the result as:\n"
+    string += "*" * 50 + "\n"
+    string += "result = {\n"
+    for name, modality, _type in task.data_triplets[task.n_conditions:]:
+        if modality in ["codec", "ssl", "codec_ssl", "spk"]:
+            string += f"  {name}: List[torch.Tensor], # audio waveform \n"
+        elif modality in ["text_bpe"]:
+            string += f"  {name}: <text-string>,\n"
+        else:
+            raise ValueError("Unrecognized modality")
+    string += "}\n"
+    string += "*" * 50 + "\n"
+
+    return string
+
+if __name__ == "__main__":
+    task_template_helper('codec_ssl_tts')

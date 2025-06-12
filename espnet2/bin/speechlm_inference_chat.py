@@ -8,7 +8,8 @@ import json
 import logging
 import re
 import sys
-import time
+import inspect
+import torch
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -23,6 +24,7 @@ from espnet2.speechlm.inference_utils import (
     build_inference_config,
     parse_sequence,
 )
+from espnet2.speechlm.definitions import task_template_helper, SPEECHLM_TASKS
 from espnet2.tasks.speechlm import SpeechLMTask
 from espnet2.torch_utils.device_funcs import to_device
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
@@ -46,10 +48,9 @@ class SpeechLM:
             - "float32": Single precision (default, good balance)
         device (str or torch.device): PyTorch device specification for model execution.
             Examples: "cpu", "cuda:0", "cuda:1", etc.
-        inference_config (Dict[str, Any]): Dictionary mapping modality tokens to their
-            respective inference configurations. Each modality (e.g., "speech", "text")
-            has specific generation parameters like beam size, temperature, etc.
-            See espnet2/speechlm/iference_utils.py for details.
+        inference_config: the inference configuration file that will parsed into the 
+            inference configuration object later. 
+            See espnet2/speechlm/inference_utils.py for details.
         inference_mode (str): Inference operation mode. Must be one of:
             - "chat": Conversational mode with role tokens and turn-based interaction
             - "task": Task-oriented mode for structured input/output processing
@@ -63,16 +64,14 @@ class SpeechLM:
 
     def __init__(
         self,
-        # For model initialization
         train_config,
         model_file,
-        dtype,
-        device,
-        # Inference parameters
-        inference_config,
-        inference_mode,
-        inference_last_segment,
-        nbest,
+        inference_config: str,
+        dtype: str = "float32",
+        device: str = 'cpu',
+        inference_mode: str = 'task',
+        inference_last_segment: bool = False,
+        nbest: int = 1,
     ):
         # load model
         model, train_args = SpeechLMTask.build_model_from_file(
@@ -98,19 +97,40 @@ class SpeechLM:
         self.inference_mode = inference_mode
         self.inference_last_segment = inference_last_segment
         self.nbest = nbest
+        self.device = device
 
         if self.inference_mode == "chat":
             assert self.nbest == 1, "Batch inference in chat mode is not supported."
-
+    
     @torch.no_grad()
-    def __call__(self, data):
+    def __call__(self, data, processor=None):
         """
         Inference with the whole given sequence.
         This API is usually used for the given dataset, and working in segment-level
         teacher forcing.
         """
-        dec_seq = data.get("dec_seq")
 
+        # NOTE(Jinchuan): user may want to directly run model inference with raw_input,
+        # so that tokenization and preprocessing have to be online
+        if data.pop('raw_input', False):
+            if processor is None:
+                raise ValueError(
+                    f"To do inference on raw data, you have to provide processor. \n"
+                    f"You can create it by: \n"
+                    f"preprocessor = SpeechLMTask.build_preprocess_fn(model.train_args, False)"
+                )
+            
+            if data.get("task", None) is None:
+                raise ValueError(
+                    "To do inference on raw data, you have to specify task"
+                )
+            task = data.pop('task')
+            data = processor(task, data)
+            dec_seq = torch.from_numpy(data['dec_seq']).unsqueeze(0).to(self.device)
+
+        else:
+            dec_seq = data.get("dec_seq")
+        
         # (1) Initialization
         self.model.decoders.reset()
         self.model.decoders.init()
@@ -127,6 +147,7 @@ class SpeechLM:
             mode=self.inference_mode,
             inference_last_segment=self.inference_last_segment,
         )
+
 
         # (3) Inference on each segments
         prefill_buffer, all_segments = [], []
@@ -175,8 +196,84 @@ class SpeechLM:
         """
         inferred_segment, _ = self.model.inference(prefill, reference, inference_config)
         return inferred_segment
+    
+    @staticmethod
+    def from_pretrained(
+        model_tag_or_path: Optional[str] = None,
+        **kwargs: Optional[Any],
+    ):
+        """Build AudioCoding instance from the pretrained model.
 
+        Args:
+            model_tag (Optional[str]): Model tag of the pretrained models.
+                Currently, the tags of espnet_model_zoo are supported.
 
+        Returns:
+            AudioCoding: AudioCoding instance.
+
+        """
+        # Set logging if it's not set by inference(), like being called 
+        # outside this script
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format=f"%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
+            )
+
+        if model_tag_or_path is not None:
+            # (1) find or download the model
+            if Path(model_tag_or_path).exists():
+                logging.info(f"using the local pre-trained model at {model_tag_or_path}")
+                cache_dir = Path(model_tag_or_path)
+            elif model_tag_or_path.startswith("espnet/"):
+                try:
+                    from huggingface_hub import snapshot_download
+                except ImportError:
+                    logging.error(
+                        "huggingface-hub is not installed. "
+                        "Please install via `pip install huggingface-hub"
+                    )
+                    raise
+                cache_dir = Path(snapshot_download(model_tag_or_path))
+                logging.info(f"Using ESPnet HF model {model_tag_or_path}")
+
+            # (2) always use the train_args and model file from the HF_repo
+            kwargs["train_config"] = cache_dir / 'config.yaml'
+            kwargs["model_file"] = cache_dir / 'model.pth'
+            
+            # (3) parse inference config
+            if "inference_config" in kwargs: # specified by author
+                inference_config = kwargs["inference_config"]
+            else: # default config in HF_repo
+                inference_config = cache_dir / 'decode_general.yaml'
+            logging.info(f"Using the inference configuration: {inference_config}")
+
+            inference_config = yaml.safe_load(open(inference_config, "r"))
+            for key in list(inspect.signature(SpeechLM.__init__).parameters.keys()):
+                if key in ["self", "train_config", "model_file", "inference_config"]:
+                    continue
+                elif key in inference_config and key not in kwargs:
+                    kwargs[key] = inference_config.pop(key)
+
+            kwargs["inference_config"] = inference_config
+
+        kwargs = {k: str(v) if isinstance(v, Path) else v for k, v in kwargs.items()}
+        logging.info(f"Inference with arguments: \n{json.dumps(kwargs, indent=4)}")
+        return SpeechLM(**kwargs)
+    
+    def helper(cls, task):
+        """ Provide a document guidance on how to run the model """
+        logging.info(task_template_helper(task))
+    
+    @property
+    def online_tokenizers(self):
+        retval = dict()
+        for modality in ['codec', 'ssl', 'codec_ssl', 'spk']:
+            if modality in self.inference_config:
+                retval[modality] = self.inference_config[modality].tokenizer
+        
+        return retval
+        
 def get_parser():
     parser = argparse.ArgumentParser(
         description="SpeechLM inference",
@@ -284,7 +381,6 @@ def inference(
     ngpu: int,
     seed: int,
     num_workers: int,
-    log_level: str,
     # Model
     train_config: str,
     model_file: str,
@@ -321,7 +417,7 @@ def inference(
         inference_mode = "task"
 
     # (2) Load model
-    speechlm = SpeechLM(
+    speechlm = SpeechLM.from_pretrained(
         train_config=train_config,
         model_file=model_file,
         dtype=dtype,
@@ -362,6 +458,7 @@ def inference(
             rank=rank,
             inference_config=speechlm.inference_config,
         )
+
     # (5) Inference loop
     for iiter, (keys, batch) in enumerate(loader, 1):
         if iiter % nproc != rank:
@@ -401,7 +498,6 @@ def main(cmd=None):
         if key in kwargs:
             kwargs[key] = inference_config.pop(key)
     kwargs["inference_config"] = inference_config
-    print(f"kwargs: {kwargs}")
 
     # (2) multiprocessing inference
     nproc = kwargs["nproc"]

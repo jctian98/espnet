@@ -4,21 +4,22 @@
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
 
-import json
-import logging
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Union
-
 import torch
 import torchaudio
+import logging
+import json
+
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Union, Dict
 from kaldiio import WriteHelper
 
-from espnet2.speechlm.definitions import SPEECHLM_TASKS
 from espnet2.speechlm.tokenizer.abs_tokenizer import AbsTokenizer as LMTokenizer
-from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
 from espnet2.text.abs_tokenizer import AbsTokenizer as TextTokenizer
+from espnet2.speechlm.tokenizer.codec_tokenizer import CodecTokenizer
+from espnet2.speechlm.tokenizer.codec_ssl_tokenizer import CodecSSLTokenizer
 from espnet2.text.build_tokenizer import build_tokenizer
+from espnet2.speechlm.definitions import SPEECHLM_TASKS
 
 
 @dataclass
@@ -36,18 +37,15 @@ class AbsInferenceConfig:
     tokenizer: Union[LMTokenizer, TextTokenizer] = None
     mask: torch.Tensor = None
 
-
 @dataclass
 class TextInferenceConfig(AbsInferenceConfig):
     sampling_temperature: float = 1.0
     topk: int = 30
 
-
 @dataclass
 class SpeechInferenceConfig(AbsInferenceConfig):
     sampling_temperature: float = 1.0
     topk: int = 30
-
 
 def build_inference_config(
     train_args,
@@ -59,6 +57,7 @@ def build_inference_config(
         "text_bpe": TextInferenceConfig,
         "codec_ssl": SpeechInferenceConfig,
     }
+    print('infer args: ', inference_config)
     config_map = {m: obj for m, obj in config_map.items() if m in inference_config}
 
     retval = dict()
@@ -75,18 +74,14 @@ def build_inference_config(
 
         # search algorithm
         if m == "text_bpe":
-            assert config["search_algo"] in [
-                "topk_sampling",
-                "greedy_search",
-                "teacher_force",
-            ]
+            assert config["search_algo"] in ["topk_sampling", "greedy_search", "teacher_force"]
         elif m == "codec_ssl":
             assert config["search_algo"] in ["topk_sampling", "teacher_force"]
 
         if config["search_algo"] == "topk_sampling":
             kwargs["sampling_temperature"] = config["sampling_temperature"]
             kwargs["topk"] = config["topk"]
-
+        
         # length method
         if config["length_method"] == "absolute":
             kwargs["maxlen"] = config["maxlen"]
@@ -94,15 +89,25 @@ def build_inference_config(
         elif config["length_method"] == "relative":
             kwargs["maxlenratio"] = config["maxlenratio"]
             kwargs["minlenratio"] = config["minlenratio"]
-
+        
         # tokenizer
         if m == "text_bpe":
             kwargs["tokenizer"] = build_tokenizer(
                 train_args.subword_choice.replace("huggingface", "hugging_face"),
                 train_args.subword_model,
             )
+
+        elif m == "codec":
+            kwargs["tokenizer"] = CodecTokenizer(
+                **config["tokenizer"],
+                device=device,
+            )
+
         elif m == "codec_ssl":
-            kwargs["tokenizer"] = CodecTokenizer(**config["tokenizer"]).to(device)
+            kwargs["tokenizer"] = CodecSSLTokenizer(
+                **config["tokenizer"],
+                device=device,
+            )
 
         # mask
         if m == "text_bpe":
@@ -111,18 +116,21 @@ def build_inference_config(
             kwargs["mask"] = build_mask(train_args, m).to(device)
 
         retval[m] = obj(**kwargs)
+    
+    audio_modality = getattr(train_args, 'audio_modality')
+    assert audio_modality in retval
+    retval['spk'] = retval[audio_modality]
 
     return retval
 
-
 def build_mask(train_args, modality):
-
+    
     if modality == "codec_ssl":
         codec_start, codec_end = train_args.token_bias["codec"]
         ssl_start, ssl_end = train_args.token_bias["ssl"]
     elif modality == "text_bpe":
         token_start, token_end = train_args.token_bias[modality]
-
+    
     vocab_size = len(train_args.token_list)
     nq = train_args.codec_token_in_use
     identifier = f"<{modality}_start/end>"
@@ -131,13 +139,13 @@ def build_mask(train_args, modality):
 
     mask = torch.ones(nq, vocab_size).bool()
     mask[0, identifier] = False
-    mask[1:, pad] = False  # always allow pad prediction in stream > 1
+    mask[1:, pad] = False # always allow pad prediction in stream > 1
 
     if modality == "codec_ssl":
         mask[0, ssl_start:ssl_end] = False
         inc = (codec_end - codec_start) // (nq - 1)
         for i in range(1, nq):
-            mask[i, codec_start + inc * (i - 1) : codec_start + inc * i] = False
+            mask[i, codec_start + inc * (i - 1):codec_start + inc * i] = False
     elif modality == "text_bpe":
         mask[0, token_start:token_end] = False
 
@@ -148,11 +156,12 @@ class TaskOrientedWriter:
     def __init__(
         self,
         train_args: Dict,
-        task: str,
-        output_dir: Path,
+        task: str, 
+        output_dir: Path, 
         rank: int = 0,
         inference_config: Dict[str, AbsInferenceConfig] = None,
     ):
+        self.audio_modality = getattr(train_args, "audio_modality", "codec_ssl")
         self.token_list = train_args.token_list
         self.token_bias = train_args.token_bias
         self.inference_config = inference_config
@@ -160,10 +169,10 @@ class TaskOrientedWriter:
         self.pad = self.token_list.index("<pad>")
         self.output_dir = output_dir
         self.task = task
-
+        
         # Build writers
         output_dir.mkdir(parents=True, exist_ok=True)
-        self.writers, self.token_writers = dict(), dict()
+        self.writers, self.token_writers = dict(), dict() 
         for name, modality, _ in self.task_template.data_triplets:
             (output_dir / name).mkdir(parents=True, exist_ok=True)
             file_name = str(output_dir / name / f"rank{rank}_{name}")
@@ -172,10 +181,10 @@ class TaskOrientedWriter:
             )
             if modality in ["text_bpe", "codec_ssl", "spk"]:
                 self.writers[name] = open(file_name, "w")
-
+    
     @torch.no_grad()
     def write(self, uid, all_segments):
-        all_segments[0] = all_segments[0][:, 2:]  # exclude <sos> and task identifier
+        all_segments[0] = all_segments[0][:, 2:] # exclude <sos> and task identifier
 
         for m_idx, (name, modality, _) in enumerate(self.task_template.data_triplets):
             # (1) match modality
@@ -185,9 +194,10 @@ class TaskOrientedWriter:
             modality_ = modality_.removeprefix("<").removesuffix("_start/end>")
             if modality != modality_:
                 raise ValueError(f"Expect {modality} but find {modality_}")
-
+            
             # (2) identify detokenizer
-            modality_ = "codec_ssl" if modality_ == "spk" else modality_
+            if modality_ == "spk":
+                modality_ = self.audio_modality
             config = self.inference_config[modality_]
             tokenizer = config.tokenizer
 
@@ -200,59 +210,65 @@ class TaskOrientedWriter:
                 segment = segment[1:]
                 segment = segment[segment[:, 0] != self.pad]
 
-                if modality_ == "codec_ssl":
-                    segment_codec = segment[:, 1:] - self.token_bias["codec"][0]
-                    segment_codec = segment_codec.view(-1).contiguous()
-                    detokenized = tokenizer.detokenize(
-                        segment_codec.clone(),
-                        n_codebook=config.nq - 1,
-                    )
+                # if modality_ == "codec_ssl":
+                #     segment_codec = segment[:, 1:] - self.token_bias["codec"][0]
+                #     segment_codec = segment_codec.view(-1).contiguous()
+                #     detokenized = tokenizer.detokenize(
+                #         segment_codec.clone(),
+                #         n_codebook=config.nq - 1,
+                #     )
 
-                    # Keep segment for saving, only substract ssl bias
+                #     # Keep segment for saving, only substract ssl bias
+                #     segment = segment - self.token_bias["ssl"][0]
+
+                if modality_ in ['codec', 'codec_ssl']:
                     segment = segment - self.token_bias["ssl"][0]
-
+                    print('segment size: ', segment.size())
+                    detokenized = tokenizer.detokenize(
+                        segment.clone().flatten(),
+                    )
+                
                 elif modality_ == "text_bpe":
                     segment = segment[:, 0]
-                    segment = segment.view(-1).contiguous()
+                    segment = segment.view(-1).contiguous() 
                     detokenized = tokenizer.tokens2text(
                         [self.token_list[tok] for tok in segment]
                     ).strip()
-                    segment = segment - self.token_bias["text_bpe"][0]
-
+                    segment = segment - self.token_bias['text_bpe'][0]
+                
                 # (3.2) write
                 if is_prefill:
                     this_uid = uid.removeprefix(f"{self.task}_")
                 else:
                     this_uid = f"{uid}_sample{s_idx}"
-
-                self.token_writers[name][this_uid] = (
-                    segment.flatten().int().cpu().numpy()
-                )
+                
+                self.token_writers[name][this_uid] = segment.flatten().int().cpu().numpy()
 
                 if modality_ == "codec_ssl":
                     audio_path = str(self.output_dir / name / f"{this_uid}.wav")
                     save_audio(audio_path, detokenized)
                     self.writers[name].write(f"{this_uid} {audio_path}\n")
                     logging.info(f"Save Audio for {this_uid}: {audio_path}")
-
+                
                 elif modality == "text_bpe":
                     self.writers[name].write(f"{this_uid} {detokenized}\n")
                     logging.info(f"Save Text for {this_uid}: {detokenized}")
-
+        
 
 class ChatOrientedWriter:
     def __init__(
         self,
         train_args: Dict,
-        task: str,
-        output_dir: Path,
+        task: str, 
+        output_dir: Path, 
         rank: int = 0,
         inference_config: Dict[str, AbsInferenceConfig] = None,
     ):
+        self.audio_modality = getattr(train_args, "audio_modality", "codec_ssl")
         self.token_list = train_args.token_list
         self.token_bias = train_args.token_bias
         self.inference_config = inference_config
-        self.output_dir = output_dir / "dialogue"
+        self.output_dir = output_dir / 'dialogue'
         self.task = task
         self.rank = rank
 
@@ -262,13 +278,13 @@ class ChatOrientedWriter:
             f"ark,scp:{file_name}_token.ark,{file_name}_token.scp"
         )
         self.buffer = []
-
+    
     @torch.no_grad()
     def write(self, name, all_segments):
         dialogue = []
 
         for idx, segments in enumerate(all_segments):
-
+            
             # name
             segment_name = f"{name}_segment{idx}"
 
@@ -280,7 +296,7 @@ class ChatOrientedWriter:
                 is_prefill = True
             segment = segments[0]
 
-            if idx == 0:  # exclude <sos> and <task_specifier>
+            if idx == 0: # exclude <sos> and <task_specifier>
                 segment = segment[2:]
 
             # role
@@ -293,14 +309,15 @@ class ChatOrientedWriter:
                 role = "assistant"
             else:
                 raise ValueError("Invalid role token")
-
+            
             modality = segment[1][0]
             modality = self.token_list[modality]
             modality = modality.removeprefix("<").removesuffix("_start/end>")
-            modality = "codec_ssl" if modality == "spk" else modality
+            if modality == "spk":
+                modality = self.audio_modality
 
-            segment = segment[2:]  # exclude role and modality token
-            segment = segment[segment[:, 0] != 0]  # exclude padding
+            segment = segment[2:] # exclude role and modality token
+            segment = segment[segment[:, 0] != 0] # exclude padding
 
             # detokenize
             if modality == "codec_ssl":
@@ -313,7 +330,7 @@ class ChatOrientedWriter:
                 )
 
                 segment = segment - self.token_bias["ssl"][0]
-
+            
             elif modality == "text_bpe":
                 segment = segment[:, 0]
                 segment = segment.view(-1).contiguous()
@@ -321,13 +338,13 @@ class ChatOrientedWriter:
                 detokenized = tokenizer.tokens2text(
                     [self.token_list[tok] for tok in segment]
                 ).strip()
-                segment = segment - self.token_bias["text_bpe"][0]
-
+                segment = segment - self.token_bias['text_bpe'][0]
+            
             else:
                 raise NotImplementedError(
                     f"modality detokenization on {modality} is not supported yet."
                 )
-
+            
             # write
             self.writer[segment_name] = segment.int().flatten().cpu().numpy()
 
@@ -337,28 +354,26 @@ class ChatOrientedWriter:
                 detokenized = audio_path
 
             dialogue.append([role, modality, is_prefill, detokenized])
-            logging.info(
-                f"Index: {idx}, Role={role}, Modality={modality}, "
-                f"is_prefill={is_prefill}, Content={detokenized}"
-            )
-
+            logging.info(f"Index: {idx}, Role={role}, Modality={modality}, is_prefill={is_prefill}, Content={detokenized}")
+        
         self.buffer.append({name: dialogue})
-        if len(self.buffer) % 1 == 0:  # save results periodically
-            json_writer = open(self.output_dir / f"rank{self.rank}_dialogue.json", "wb")
-            json_writer.write(
-                json.dumps(
-                    self.buffer, indent=4, ensure_ascii=False, sort_keys=False
-                ).encode("utf_8")
+        if len(self.buffer) % 1 == 0: # save results periodically
+            json_writer = open(
+                self.output_dir / f"rank{self.rank}_dialogue.json", 'wb'
             )
-
-
+            json_writer.write(
+                json.dumps(self.buffer, indent=4, ensure_ascii=False, sort_keys=False).encode(
+                    "utf_8"
+                )
+            )
+        
 def parse_sequence(dec_seq, token_list, mode="task", inference_last_segment=False):
     """
-    Parse the sequence into multiple segments for inference.
+    Parse the sequence into multiple segments for inference. 
     Args:
         dec_seq (torch.Tensor): The sequence to be parsed, of size [B, T, nq].
         mode (str): The mode of parsing, either "task" or "chat".
-
+    
     returns:
         all_segments (list): A list of segments, each two items:
             - segments, List of torch.Tensor
@@ -373,19 +388,19 @@ def parse_sequence(dec_seq, token_list, mode="task", inference_last_segment=Fals
     # (1.1) if the chat model, add the start with role token
     if mode == "chat":
         indices -= 1
-
+    
     # (1.2) the first segment start from 0; add the last index
     indices[0] = 0
     indices = torch.nn.functional.pad(indices, (0, 1), value=dec_seq.size(1))
 
     # (2) find the task
-    task_token = dec_seq[0, 1, 0].item()
+    task_token = dec_seq[0, 1, 0].item() 
     task_token = token_list[task_token].removeprefix("<").removesuffix("_task>")
     task_template = SPEECHLM_TASKS[task_token]
 
     if mode == "task":
         assert len(task_template.data_triplets) == len(indices) - 1
-
+    
     # (2) each segment is either a prefill or a target
     all_segments = []
     is_prefills = []
@@ -402,17 +417,16 @@ def parse_sequence(dec_seq, token_list, mode="task", inference_last_segment=Fals
             else:
                 is_prefills.append(True)
         else:
-            if segment[0, 0, 0] == 10:  # role token, <assistant_output>
+            if segment[0, 0, 0] == 10: # role token, <assistant_output>
                 is_prefills.append(False)
             else:
                 is_prefills.append(True)
-
+    
     if inference_last_segment:
         for n in range(len(is_prefills) - 1):
             is_prefills[n] = True
 
     return all_segments, is_prefills
-
 
 def save_audio(path, audio):
     torchaudio.save(

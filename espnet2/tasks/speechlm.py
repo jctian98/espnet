@@ -309,7 +309,11 @@ class SpeechLMTask(AbsTask):
     @classmethod
     @typechecked
     def build_preprocess_fn(
-        cls, args: argparse.Namespace, train: bool
+        cls, 
+        args: argparse.Namespace, 
+        train: bool,
+        online_tokenization: bool = False,
+        online_tokenizers: dict = {},
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
 
         # (Jinchuan) SpeechLM task will always use the preprocess_fn
@@ -338,6 +342,8 @@ class SpeechLMTask(AbsTask):
             audio_modality=getattr(args, "audio_modality", "codec_ssl"),
             vision_encoder_processor_conf=getattr(args, "vision_encoder_conf", {}),
             is_dpo=args.model == "dpo",
+            online_tokenization=online_tokenization,
+            online_tokenizers=online_tokenizers,
         )
 
         return retval

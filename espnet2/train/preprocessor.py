@@ -2653,6 +2653,8 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         asr_apply_time_mask: bool = False,
         asr_time_mask_config: dict = dict(),
         is_dpo: bool = False,
+        online_tokenization: bool = False,
+        online_tokenizers: dict = {},
     ):
         self.token_list = token_list.copy()
         self.token_bias = token_bias.copy()
@@ -2770,6 +2772,9 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             self.asr_time_mask = MaskAlongAxisVariableMaxWidth(**asr_time_mask_config)
         else:
             self.asr_time_mask = None
+        
+        self.online_tokenization = online_tokenization
+        self.online_tokenizers = online_tokenizers
 
     @typechecked
     def __call__(
@@ -2801,6 +2806,10 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 data_tuples.append((name, modality, role, content, target))
         else:
             for idx, (name, modality, _) in enumerate(task.data_triplets):
+                # For inference with online tokenization, we don't tokenize the
+                # target segment. We only put a meaningless placeholder
+                if self.online_tokenization and idx >= task.n_conditions:
+                    data[name] = "<placeholder>"
                 content = data[name]
                 role = None
                 target = idx >= task.n_conditions
@@ -2819,12 +2828,22 @@ class SpeechLMPreprocessor(AbsPreprocessor):
             else:
                 end_tok = "<sos/eos>"
 
-            value, conti_feat, conti_len = self.modality_specific_processing(
-                content,
-                modality,
-                cache,
-                end_tok=end_tok,
-            )
+            if content == "<placeholder>":
+                value = [
+                    self.special_token(f"<{modality}_start/end>"),
+                    self.special_token("<pad>"),
+                ]
+                if end_tok is not None:
+                    value.append(self.special_token(end_tok))
+                value = np.concatenate(value, axis=0)
+                conti_feat, conti_len = None, 0
+            else:
+                value, conti_feat, conti_len = self.modality_specific_processing(
+                    content,
+                    modality,
+                    cache,
+                    end_tok=end_tok,
+                )
 
             # NOTE(Jinchuan): when the role is set, like in post-training, we
             # add this role token.
@@ -2921,6 +2940,9 @@ class SpeechLMPreprocessor(AbsPreprocessor):
     def modality_specific_processing(self, value, modality, cache, end_tok=None):
         # multi-stream discrete modalities
         if modality in ["codec", "spk", "codec_ssl"]:
+            if self.online_tokenization:
+                value = self.online_tokenizers[modality].online_tokenize(value)
+
             value = value.reshape(-1, self.codec_token_per_frame)
             value = value[:, : self.codec_token_in_use]
 
@@ -2969,6 +2991,8 @@ class SpeechLMPreprocessor(AbsPreprocessor):
 
         # Other discrete modalities
         elif modality in ["ssl", "text_bpe", "g2p", "video_ssl", "svs_lb"]:
+            if self.online_tokenization and modality in ['ssl']:
+                value = self.online_tokenizers[modality].online_tokenize(value)
 
             if modality in ["text_bpe", "g2p"]:
                 if isinstance(value, str):
