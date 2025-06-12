@@ -20,7 +20,7 @@ log() {
 }
 
 stage=1
-stop_stage=1
+stop_stage=3
 nj=4
 fs=16000
 file_name=

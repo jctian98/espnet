@@ -266,6 +266,7 @@ def process_one_manifest(manifest, dumpdir, prefix, task, wav_scp, audio_modalit
         dialogue = Dialogue(task='audio_dialogue')
 
         # text-audio paired data, without template. E.g., ETTA
+        example_valid = True
         if 'captions' in example:
             # system prompt
             prompt = random.choice(prompts)
@@ -310,6 +311,10 @@ def process_one_manifest(manifest, dumpdir, prefix, task, wav_scp, audio_modalit
                     raise ValueError(f"Unrecognized role: {message['from']}")
                 
                 text = message['value']
+                if not isinstance(text, str):
+                    raise ValueError(f"Invalid text: {text} in {manifest}-{idx}")
+                    example_valid = False
+
 
                 if "<sound>" in text or "<speech>" in text:
                     assert role == "user", (example, message, role)
@@ -325,9 +330,10 @@ def process_one_manifest(manifest, dumpdir, prefix, task, wav_scp, audio_modalit
         else:
             raise NotImplementedError    
         
-        dataset.add_dialogue(example_id, dialogue)
-        if random.random() < 0.0005:
-            valid_examples.append((example_id, dialogue))
+        if example_valid:
+            dataset.add_dialogue(example_id, dialogue)
+            if random.random() < 0.0005:
+                valid_examples.append((example_id, dialogue))
     
     if len(dataset) > 256:
         dataset.dump_dataset(output_dir)

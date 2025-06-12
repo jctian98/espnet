@@ -81,13 +81,22 @@ fi
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     log "Assemble to dialogue"
+    if [ ${tokenization_task} == "codec_ssl_audiolm" ]; then
+        audio_modality="codec_ssl"
+    elif [ ${tokenization_task} == "audiolm" ]; then
+        audio_modality="codec"
+    else
+        log "Invalid tokenization task ${tokenization_task}"
+    fi
+
     for task in ${tasks}; do
         python local/prepare_dialogue.py \
         --manifests ${manifests} \
         --dumpdir ${dumpdir}/raw_${tokenization_task}_${dataname} \
         --mapping data/${dataname}_all/mapping \
         --prefix ${dataname} \
-        --task $task
+        --task $task \
+        --audio_modality ${audio_modality}
 
         for dset in `ls ${dumpdir}/raw_audio_dialogue_${dataname}`; do
             dir=${dumpdir}/raw_audio_dialogue_${dataname}/${dset}
