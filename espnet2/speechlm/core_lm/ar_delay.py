@@ -91,6 +91,7 @@ class ARDelayLM(ARParallelLM):
         prefill: torch.Tensor,
         reference: torch.Tensor,
         config: AbsInferenceConfig,
+        conti_feats: list = None,
     ):
         # (1) Prefill
         prefill_delay, _ = self.delay_interleave(prefill)
@@ -100,8 +101,16 @@ class ARDelayLM(ARParallelLM):
             reference_delay = None
 
         prefill_delay_emb = self.emb(prefill_delay[:, :-1]).sum(dim=2)
+        if conti_feats is not None:
+            if len(self.continuous_encoders) > 0:
+                for modality, module in self.continuous_encoders.items():
+                    prefill_delay_emb = module(
+                        prefill_delay_emb,
+                        conti_feats,
+                        modality=modality,
+                    )
         _ = self.decoders(prefill_delay_emb)
-
+        
         # (2) Length control
         # TODO(Jinchuan): double-check the length control logic
         if config.search_algo == "teacher_force":
