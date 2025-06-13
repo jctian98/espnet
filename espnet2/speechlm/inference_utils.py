@@ -309,6 +309,7 @@ class ChatOrientedWriter:
             
             elif modality == "codec":
                 segment = segment - self.token_bias['codec'][0]
+
                 segment = segment.view(-1).contiguous()
                 tokenizer = self.inference_config[modality].tokenizer
                 detokenized = tokenizer.detokenize(
@@ -325,13 +326,18 @@ class ChatOrientedWriter:
                 ).strip()
                 segment = segment - self.token_bias['text_bpe'][0]
             
+            elif modality in ["text_encoder"]:
+                segment = None
+                detokenized = None
+            
             else:
                 raise NotImplementedError(
                     f"modality detokenization on {modality} is not supported yet."
                 )
             
             # write
-            self.writer[segment_name] = segment.int().flatten().cpu().numpy()
+            if segment is not None:
+                self.writer[segment_name] = segment.int().flatten().cpu().numpy()
 
             if modality == "codec_ssl" or modality  == "codec":
                 audio_path = str(self.output_dir / f"{segment_name}.wav")

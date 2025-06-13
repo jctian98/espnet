@@ -135,6 +135,7 @@ class SpeechLM:
                     prefill,
                     segment[:, extra_prefill_len:, :],
                     inference_config,
+                    conti_feats=conti_feats,
                 )
                 prefix = segment[0, :extra_prefill_len, :]
                 inferred_segments_new = []
@@ -146,12 +147,23 @@ class SpeechLM:
 
         return all_segments
 
-    def inference_one_segment(self, prefill, reference, inference_config):
+    def inference_one_segment(
+        self, 
+        prefill, 
+        reference, 
+        inference_config,
+        conti_feats: list = None, 
+    ):
         """ 
         Inference one turn with the prefill until certain requirements are met.
         This API is used in both __call__ function and the user interactive interface.
         """
-        inferred_segment, _ = self.model.inference(prefill, reference, inference_config)
+        inferred_segment, _ = self.model.inference(
+            prefill, 
+            reference, 
+            inference_config,
+            conti_feats=conti_feats,
+        )
         return inferred_segment
 
 def get_parser():
