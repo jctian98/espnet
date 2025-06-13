@@ -930,11 +930,17 @@ if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ] && ! "${skip_upload}"; then
     # Pack model
     if [ -e "${universa_exp}/${inference_model}" ]; then
         # Pack model
+
+        if [ -e "${data_feats}/${train_set}/metric2type" ]; then
+            _opts="--option ${data_feats}/${train_set}/metric2type"
+        fi
+
         # shellcheck disable=SC2086
         ${python} -m espnet2.bin.pack universa \
             --model_file "${universa_exp}/${inference_model}" \
             --train_config "${universa_exp}/config.yaml" \
             --option "${universa_exp}/images" \
+            --option "${data_feats}/${train_set}/metric2id" ${_opts} \
             --outpath "${packed_model}"
     else
         log "Skip packing model since ${universa_exp}/${inference_model} does not exist."

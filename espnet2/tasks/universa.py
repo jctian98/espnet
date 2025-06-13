@@ -313,7 +313,7 @@ class UniversaTask(AbsTask):
         else:
             metric_token_info = {}
         if hasattr(args, "tokenize_numerical_metric"):
-            tokenize_numerical_metric = args.args.tokenize_numerical_metric
+            tokenize_numerical_metric = args.tokenize_numerical_metric
         else:
             tokenize_numerical_metric = False
         if hasattr(args, "sequential_metric"):
