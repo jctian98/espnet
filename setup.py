@@ -16,7 +16,7 @@ requirements = {
         "asteroid_filterbanks",
         "transformers",
         "einops",
-        "humanfriednly",
+        "humanfriendly",
         "torch-complex",
         "h5py",
         "kaldiio",

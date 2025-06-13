@@ -314,7 +314,8 @@ def calculate_regression_metrics(ref_metric_scores, pred_metric_scores, prefix="
     """
     if len(ref_metric_scores) != len(pred_metric_scores):
         raise ValueError(
-            f"Number of samples mismatch: {len(ref_metric_scores)} != {len(pred_metric_scores)}"
+            "Num of utt mismatch: "
+            f"{len(ref_metric_scores)} != {len(pred_metric_scores)}"
         )
 
     # Convert inputs to numpy arrays if they aren't already
@@ -714,4 +715,8 @@ if __name__ == "__main__":
     logging.info(f"Results saved to {args.out_file}")
 
 # Example usage:
-# python universa_eval.py --level utt --ref_metrics ref_metrics.scp --pred_metrics pred_metrics.scp --out_file result.json
+# python universa_eval.py \
+#     --level utt \
+#     --ref_metrics ref_metrics.scp \
+#     --pred_metrics pred_metrics.scp \
+#     --out_file result.json
