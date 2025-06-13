@@ -6,7 +6,7 @@
 universa: ar_universa
 universa_conf:
   # Embedding
-  embedding_dim: 256
+  embedding_dim: 512
 
   # Audio Encoders
   audio_encoder_type: transformer
@@ -35,9 +35,9 @@ universa_conf:
 
   # Decoder
   metric_decoder_params:
-    num_blocks: 4
-    attention_heads: 4
-    linear_units: 1024
+    num_blocks: 12
+    attention_heads: 8
+    linear_units: 2048
     dropout_rate: 0.1
     positional_dropout_rate: 0.1
     src_attention_dropout_rate: 0.1
@@ -56,13 +56,23 @@ universa_conf:
   
 
 # Frontend
-frontend: default
+# Frontend
+frontend: s3prl
+frontend_conf:
+  frontend_conf:
+      upstream: wavlm_large  # Note: If the upstream is changed, please change the input_size in the preencoder
+  download_dir: ./hub
+  multilayer_feature: True
+
+freeze_param: [
+    "frontend.upstream"
+  ]
 
 sequential_metric: true # must set to true for ARUniversa-related models
 
 tokenize_numerical_metric: true # must set to true for ARUniversa-related models
 
-randomize_sequential_metric: false # whether to randomize sequential metrics during training
+randomize_sequential_metric: true # whether to randomize sequential metrics during training
 
 ########################
 # Training parameters  #

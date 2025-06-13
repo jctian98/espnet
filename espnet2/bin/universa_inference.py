@@ -44,6 +44,7 @@ class UniversaInference:
         """Initialize UniversaInference class."""
 
         # setup model
+        print(train_config, model_file, flush=True)
         model, train_args = UniversaTask.build_model_from_file(
             train_config, model_file, device
         )
@@ -66,7 +67,10 @@ class UniversaInference:
         self.use_fixed_order = use_fixed_order
         self.fixed_metric_name_order = fixed_metric_name_order
 
-        if self.model.universa.sequential_metrics:
+        if (
+            hasattr(self.model.universa, "sequential_metrics")
+            and self.model.universa.sequential_metrics
+        ):
             metric_list = list(self.model.universa.metric2id.keys())
             self.model.universa.set_inference(
                 beam_size=beam_size,

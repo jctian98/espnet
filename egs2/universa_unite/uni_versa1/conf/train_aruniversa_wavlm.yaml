@@ -56,13 +56,23 @@ universa_conf:
   
 
 # Frontend
-frontend: default
+# Frontend
+frontend: s3prl
+frontend_conf:
+  frontend_conf:
+      upstream: wavlm_large  # Note: If the upstream is changed, please change the input_size in the preencoder
+  download_dir: ./hub
+  multilayer_feature: True
+
+freeze_param: [
+    "frontend.upstream"
+  ]
 
 sequential_metric: true # must set to true for ARUniversa-related models
 
 tokenize_numerical_metric: true # must set to true for ARUniversa-related models
 
-randomize_sequential_metric: false # whether to randomize sequential metrics during training
+randomize_sequential_metric: true # whether to randomize sequential metrics during training
 
 ########################
 # Training parameters  #

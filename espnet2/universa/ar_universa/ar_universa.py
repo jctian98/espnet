@@ -474,7 +474,11 @@ class ARUniversa(AbsUniversa):
 
     @typechecked
     def set_inference(
-        self, beam_size: int, metric_list: List[str], skip_meta_label_score: bool, save_token_seq: bool = False
+        self,
+        beam_size: int,
+        metric_list: List[str],
+        skip_meta_label_score: bool,
+        save_token_seq: bool = False,
     ) -> None:
         """Set inference mode.
 
@@ -501,7 +505,7 @@ class ARUniversa(AbsUniversa):
             start_idx = start_idx + self.metric_tokenizer.overall_offset + 2
             end_idx = start_idx + (num_idx - 2)
             beam_masking[metric_token] = (start_idx, end_idx)
-        
+
         self.save_token_seq = save_token_seq
 
         self.search_module = ARUniVERSABeamSearch(

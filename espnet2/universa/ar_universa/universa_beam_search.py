@@ -173,7 +173,10 @@ class ARUniVERSABeamSearch:
 
     @typechecked
     def beam(
-        self, weighted_scores: torch.Tensor, ids: torch.Tensor, use_id_size: bool = False
+        self,
+        weighted_scores: torch.Tensor,
+        ids: torch.Tensor,
+        use_id_size: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute topk full token ids and partial token ids.
 
@@ -300,9 +303,7 @@ class ARUniVERSABeamSearch:
         best_hyps = []
         extended_running_hyps = []
 
-        extended_running_hyps.extend(
-            self.extend(running_hyps, x)
-        )
+        extended_running_hyps.extend(self.extend(running_hyps, x))
         for hyp in extended_running_hyps:
             # scoring
             weighted_scores = torch.zeros(self.n_vocab, dtype=x.dtype, device=x.device)

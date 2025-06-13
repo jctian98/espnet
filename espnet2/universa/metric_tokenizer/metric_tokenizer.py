@@ -224,9 +224,7 @@ class MetricTokenizer(AbsMetricTokenizer):
             metric_name = meta_label.split("@meta_label")[0]
 
             # Extract value index from value token
-            value_index = (
-                int(value_token.split("@")[-1])
-            ) 
+            value_index = int(value_token.split("@")[-1])
             assert (
                 value_index >= 0
             ), f"Invalid value index: {value_index} for token {value_token}"

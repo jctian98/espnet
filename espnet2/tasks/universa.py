@@ -307,6 +307,20 @@ class UniversaTask(AbsTask):
         else:
             metric2type = None
 
+        # NOTE(jiatong): for compatibility with UniVERSA models
+        if hasattr(args, "metric_token_info"):
+            metric_token_info = args.metric_token_info
+        else:
+            metric_token_info = {}
+        if hasattr(args, "tokenize_numerical_metric"):
+            tokenize_numerical_metric = args.args.tokenize_numerical_metric
+        else:
+            tokenize_numerical_metric = False
+        if hasattr(args, "sequential_metric"):
+            sequential_metric = args.sequential_metric
+        else:
+            sequential_metric = False
+
         if args.use_preprocessor:
             retval = UniversaProcessor(
                 train=train,
@@ -317,9 +331,9 @@ class UniversaTask(AbsTask):
                 text_cleaner=args.cleaner,
                 g2p_type=args.g2p,
                 metric2type=metric2type,
-                metric_token_info=args.metric_token_info if hasattr(args, "metric_token_info") else {},
-                tokenize_numerical_metric=args.tokenize_numerical_metric,
-                reduce_offset=not args.sequential_metric,
+                metric_token_info=metric_token_info,
+                tokenize_numerical_metric=tokenize_numerical_metric,
+                reduce_offset=not sequential_metric,
             )
         else:
             retval = None
@@ -368,7 +382,10 @@ class UniversaTask(AbsTask):
         )
 
         # NOTE(jiatong): first check the existance of the variable for UniVERSA models
-        if hasattr(args, "tokenize_numerical_metric") and args.tokenize_numerical_metric:
+        if (
+            hasattr(args, "tokenize_numerical_metric")
+            and args.tokenize_numerical_metric
+        ):
             metric2type = {k: "categorical" for k, v in metric2type.items()}
 
         # Process metric token list
@@ -422,11 +439,17 @@ class UniversaTask(AbsTask):
             use_ref_audio=args.use_ref_audio,
             use_ref_text=args.use_ref_text,
             metric_pad_value=args.metric_pad_value,
-            metric_token_pad_value=args.metric_token_pad_value if hasattr(args, "metric_token_pad_value") else -1,
+            metric_token_pad_value=(
+                args.metric_token_pad_value
+                if hasattr(args, "metric_token_pad_value")
+                else -1
+            ),
             metric2type=metric2type,
             metric_vocab_size=metric_vocab_size,
             metric_token_info=metric_token_info,
-            sequential_metrics=args.sequential_metric if hasattr(args, "sequential_metric") else False,
+            sequential_metrics=(
+                args.sequential_metric if hasattr(args, "sequential_metric") else False
+            ),
             **args.universa_conf,
         )
 
