@@ -472,3 +472,122 @@ class ConvolutionalPositionalEmbedding(torch.nn.Module):
             x = torch.nn.functional.gelu(x)
         x = x.transpose(-2, -1)
         return x
+
+
+class RoPEPositionalEncoding(torch.nn.Module):
+    """Rotary Position Embedding (RoPE) module.
+    
+    As described in "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    https://arxiv.org/abs/2104.09864
+    
+    Args:
+        d_model (int): Embedding dimension.
+        dropout_rate (float): Dropout rate.
+        max_len (int): Maximum input length.
+    """
+    
+    def __init__(self, d_model, dropout_rate, max_len=5000):
+        """Construct a RoPEPositionalEncoding object."""
+        super(RoPEPositionalEncoding, self).__init__()
+        self.d_model = d_model
+        self.xscale = math.sqrt(self.d_model)
+        self.dropout = torch.nn.Dropout(p=dropout_rate)
+        self.max_len = max_len
+        
+        # RoPE requires dimension to be even
+        assert d_model % 2 == 0, "d_model must be even for RoPE"
+        
+        # Create frequency matrix for RoPE
+        # Each pair of dimensions shares the same frequency
+        # freq_seq ranges from 0 to d_model/2-1
+        freq_seq = torch.arange(0, d_model, 2, dtype=torch.float32)
+        
+        # Calculate frequencies: theta_i = 10000^(-2i/d)
+        self.inv_freq = 1.0 / (10000 ** (freq_seq / d_model))
+        
+        # We'll compute the actual position embeddings during the forward pass
+        self.cached_rotations = None
+        self.cached_seq_len = 0
+    
+    def _compute_rope_embeddings(self, seq_len, device, dtype):
+        """Compute rotary position embeddings."""
+        # If we've already computed for this sequence length and device, reuse
+        if self.cached_rotations is not None and seq_len <= self.cached_seq_len and self.cached_rotations.device == device:
+            return self.cached_rotations[:seq_len]
+        
+        # Create position indices
+        positions = torch.arange(0, seq_len, dtype=torch.float32, device=device).unsqueeze(1)
+        
+        # Compute position * frequency for each dimension
+        # This gives us the rotation angles
+        angles = positions * self.inv_freq.to(device)
+        
+        # For each position, create a rotation matrix for each pair of dimensions
+        cos = torch.cos(angles).repeat_interleave(2, dim=-1)  # [seq_len, d_model]
+        sin = torch.sin(angles).repeat_interleave(2, dim=-1)  # [seq_len, d_model]
+        
+        # Prepare sin and cos for the rotation
+        # For even indices: [cos, sin]
+        # For odd indices: [-sin, cos]
+        sin_cos = torch.stack([cos, sin], dim=-1).reshape(seq_len, self.d_model, 2)
+        
+        # Cache results for reuse
+        self.cached_rotations = sin_cos
+        self.cached_seq_len = seq_len
+        
+        return sin_cos
+    
+    def _apply_rotary_pos_emb(self, x, sin_cos):
+        """Apply rotary position embeddings to input tensor x."""
+        # Reshape x to [batch, seq_len, ..., d_model]
+        original_shape = x.shape
+        x = x.view(*x.shape[:-1], -1, 2)
+        
+        # Extract cos and sin components
+        cos, sin = sin_cos[..., 0], sin_cos[..., 1]
+        
+        # For each position and pair of dimensions, apply the rotation:
+        # [x_i, x_{i+1}] -> [x_i*cos - x_{i+1}*sin, x_i*sin + x_{i+1}*cos]
+        x1 = x[..., 0::2]  # even indices
+        x2 = x[..., 1::2]  # odd indices
+        
+        # Apply rotation
+        rotated_x = torch.stack([
+            x1 * cos - x2 * sin,
+            x1 * sin + x2 * cos
+        ], dim=-1).flatten(-2)
+        
+        # Restore original shape
+        rotated_x = rotated_x.reshape(original_shape)
+        
+        return rotated_x
+    
+    def extend_pe(self, x):
+        """Reset the positional encodings cache if needed."""
+        seq_len = x.size(1)
+        if self.cached_rotations is None or seq_len > self.cached_seq_len or self.cached_rotations.device != x.device:
+            self._compute_rope_embeddings(max(seq_len, self.max_len), x.device, x.dtype)
+    
+    def forward(self, x: torch.Tensor):
+        """Add positional encoding.
+        
+        Args:
+            x (torch.Tensor): Input tensor (batch, time, `*`).
+            
+        Returns:
+            torch.Tensor: Encoded tensor (batch, time, `*`).
+            torch.Tensor: Position embeddings for attention computation.
+        """
+        self.extend_pe(x)
+        seq_len = x.size(1)
+        
+        # Scale the embeddings
+        x = x * self.xscale
+        
+        # Get the rotations for the current sequence length
+        sin_cos = self._compute_rope_embeddings(seq_len, x.device, x.dtype)
+        
+        # In RoPE, we return the input itself as the first tensor
+        # and the rotation matrices as the second tensor
+        # The actual rotation is applied within the attention mechanism
+        return self.dropout(x), sin_cos

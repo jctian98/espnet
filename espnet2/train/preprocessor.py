@@ -5,7 +5,7 @@ import random
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Collection, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Collection, Dict, Iterable, List, Optional, Tuple, Union
 
 import librosa
 import numpy as np
@@ -21,6 +21,7 @@ from espnet2.text.hugging_face_token_id_converter import HuggingFaceTokenIDConve
 from espnet2.text.token_id_converter import TokenIDConverter
 from espnet2.text.whisper_token_id_converter import OpenAIWhisperTokenIDConverter
 from espnet2.text.whisper_tokenizer import OpenAIWhisperTokenizer
+from espnet2.universa.metric_tokenizer.metric_tokenizer import MetricTokenizer
 
 
 class AbsPreprocessor(ABC):
@@ -408,7 +409,7 @@ class CommonPreprocessor(AbsPreprocessor):
 
     @typechecked
     def _speech_process(
-        self, data: Dict[str, Union[str, np.ndarray]]
+        self, data: Dict[str, Optional[Union[str, np.ndarray]]]
     ) -> Dict[str, Union[str, np.ndarray]]:
         if self.speech_name in data:
             if self.train and (self.rirs is not None or self.noises is not None):
@@ -541,7 +542,7 @@ class CommonPreprocessor(AbsPreprocessor):
 
     @typechecked
     def __call__(
-        self, uid: str, data: Dict[str, Union[str, np.ndarray]]
+        self, uid: str, data: Dict[str, Optional[Union[str, np.ndarray]]]
     ) -> Dict[str, np.ndarray]:
 
         data = self._speech_process(data)
@@ -2779,3 +2780,223 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 patch = patch.tolist()
                 patch_str = ", ".join(self.converter.ids2tokens(patch))
                 logging.warning(f"Patch: {idx} -> {patch_str}")
+
+
+class UniversaProcessor(AbsPreprocessor):
+    def __init__(
+        self,
+        train: bool,
+        # for text processing
+        token_type: Optional[str] = None,
+        token_list: Union[Path, str, Iterable[str]] = None,
+        bpemodel: Union[Path, str, Iterable[str]] = None,
+        text_cleaner: Collection[str] = None,
+        g2p_type: Optional[str] = None,
+        unk_symbol: str = "<unk>",
+        space_symbol: str = "<space>",
+        non_linguistic_symbols: Union[Path, str, Iterable[str]] = None,
+        delimiter: Optional[str] = None,
+        # for metric processing
+        metric2type: Optional[Dict[str, str]] = None,
+        metric_token_info: Union[Path, str, Iterable[str]] = None,
+        tokenize_numerical_metric: bool = True,
+        reduce_offset: bool = True,
+        # other parameters
+        force_single_channel: bool = True,
+        audio_volume_normalize: float = None,
+        audio_name: str = "audio",
+        ref_audio_name: str = "ref_audio",
+        text_name: str = "ref_text",
+        fs: int = 0,
+        nonsplit_symbol: Iterable[str] = None,
+        # for padding of chunk iterator, working when > 0
+        min_sample_size: int = -1,
+        audio_pad_value: Union[float, int] = 0.0,
+        # for silence audio (reserved for missing reference)
+        empty_audio_length: int = 8000,
+    ):
+        super().__init__(train)
+        self.train = train
+        self.metric2type = metric2type
+        self.metric_token_info = metric_token_info
+        self.tokenize_numerical_metric = tokenize_numerical_metric
+        self.reduce_offset = reduce_offset
+        self.audio_name = audio_name
+        self.ref_audio_name = ref_audio_name
+        self.text_name = text_name
+        self.audio_volume_normalize = audio_volume_normalize
+        self.force_single_channel = force_single_channel
+        self.empty_audio_length = empty_audio_length
+
+        if token_type is not None and token_list is not None:
+            self.text_cleaner = TextCleaner(text_cleaner)
+
+            self.tokenizer = build_tokenizer(
+                token_type=token_type,
+                bpemodel=bpemodel,
+                delimiter=delimiter,
+                space_symbol=space_symbol,
+                non_linguistic_symbols=non_linguistic_symbols,
+                g2p_type=g2p_type,
+                nonsplit_symbol=nonsplit_symbol,
+            )
+            self.token_id_converter = TokenIDConverter(
+                token_list=token_list,
+                unk_symbol=unk_symbol,
+            )
+        else:
+            self.text_cleaner = None
+            self.tokenizer = None
+
+        if self.metric2type is None:
+            # If no metric2type is set, all values are considered as numerical
+            # NOTE(jiatong): for backward compatibility
+            self.metric_tokenizer = None
+        else:
+            if not tokenize_numerical_metric:
+                tokenize_metric = [
+                    metric_name
+                    for metric_name in self.metric2type.keys()
+                    if self.metric2type[metric_name] == "categorical"
+                ]
+            else:
+                tokenize_metric = None
+            self.metric_tokenizer = MetricTokenizer(
+                metric_token_info, tokenize_metric=tokenize_metric
+            )
+            print("tokenize_numerical_metric: {}".format(tokenize_numerical_metric))
+            print("tokenize_metric: {}".format(tokenize_metric), flush=True)
+
+        self.fs = fs
+
+        # for padding of chunk iterator, working when > 0
+        self.min_sample_size = min_sample_size
+        self.audio_pad_value = audio_pad_value
+
+    def _pad_audio(self, audio):
+        # NOTE(jiatong): Padding for chunk iterator
+        #                other padding are conducted in collate_fn
+
+        # right pad with given value
+        if audio.ndim == 1 and audio.shape[0] < self.min_sample_size:
+            # single channel cases
+            audio = np.pad(
+                audio,
+                (0, self.min_sample_size + 1 - audio.shape[0]),
+                mode="constant",
+                constant_values=(0, self.audio_pad_value),
+            )
+        elif audio.ndim == 2 and audio.shape[0] < self.min_sample_size:
+            # multi channel cases
+            audio = audio.T
+            audio = np.pad(
+                audio,
+                ((0, 0), (0, self.min_sample_size + 1 - audio.shape[1])),
+                mode="constant",
+                constant_values=((0, 0), (0, self.audio_pad_value)),
+            )
+            audio = audio.T
+
+        return audio
+
+    @typechecked
+    def _audio_process(
+        self, data: Dict[str, Union[str, np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Any]]:
+        for name in [self.audio_name, self.ref_audio_name]:
+            if name in data:
+
+                # NOTE(jiatong): an empty silence audio for None audio
+                audio = data[name]
+                if audio is None and name == self.ref_audio_name:
+                    audio = np.zeros(self.empty_audio_length)
+                    data[name] = audio
+
+                if self.train:
+                    audio = data[name]
+
+                    # audio: (Nmic, Time)
+                    if audio.ndim == 1:
+                        audio = audio[:, None]
+
+                    ma = np.max(np.abs(audio))
+                    if ma > 1.0:
+                        audio /= ma
+                    data[name] = audio
+
+                if self.train and self.min_sample_size > 0:
+                    # NOTE(jiatong): Padding for chunk iterator
+                    #                other padding are conducted in collate_fn
+                    data[name] = self._pad_audio(data[name])
+
+                if self.audio_volume_normalize is not None:
+                    audio = data[name]
+                    ma = np.max(np.abs(audio))
+                    if ma != 0:
+                        data[name] = audio * self.audio_volume_normalize / ma
+
+                if self.force_single_channel:
+                    audio = data[name]
+                    if audio.ndim == 2:
+                        # NOTE(jiatong): default average across channels
+                        audio = np.mean(audio, axis=1, keepdims=False)
+                    data[name] = audio
+        return data
+
+    @typechecked
+    def _text_process(
+        self, data: Dict[str, Union[str, np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Dict[str, Any]]]:
+        if self.text_name in data and self.tokenizer is not None:
+            text = data[self.text_name]
+            if isinstance(text, np.ndarray):
+                return data
+            text = self.text_cleaner(text)
+            if text is None:
+                text = "Test sentence for checking, it is not a none sentence"
+            tokens = self.tokenizer.text2tokens(text)
+            text_ints = self.token_id_converter.tokens2ids(tokens)
+            if len(text_ints) > 500:
+                logging.warning(
+                    "The length of the text output exceeds 500, "
+                    "which may cause OOM on the GPU."
+                    "Please ensure that the data processing is correct and verify it."
+                )
+            data[self.text_name] = np.array(text_ints, dtype=np.int64)
+        return data
+
+    @typechecked
+    def _metric_process(
+        self, data: Dict[str, Union[np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Dict[str, Any]]]:
+        if "metrics" in data:
+            metric = data["metrics"]
+            if self.metric2type is None:
+                for key, value in metric.items():
+                    assert key in self.metric2type, f"Metric {key} not in metric2type"
+
+                    metric[key] = float(value)
+            else:
+                updated_metric = self.metric_tokenizer.metric2token(
+                    metric, reduce_offset=self.reduce_offset
+                )
+
+                if not self.tokenize_numerical_metric:
+                    for key, value in metric.items():
+                        if (
+                            key in self.metric2type.keys()
+                            and self.metric2type[key] == "numerical"
+                        ):
+                            updated_metric[key] = float(value)
+            data["metrics"] = updated_metric
+        return data
+
+    @typechecked
+    def __call__(
+        self, uid: str, data: Dict[str, Union[str, np.ndarray, Dict[str, Any]]]
+    ) -> Dict[str, Union[np.ndarray, Dict[str, Any]]]:
+
+        data = self._text_process(data)
+        data = self._audio_process(data)
+        data = self._metric_process(data)
+        return data

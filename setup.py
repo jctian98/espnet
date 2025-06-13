@@ -15,7 +15,6 @@ requirements = {
         "espnet_tts_frontend",
         "asteroid_filterbanks",
         "transformers",
-        "torchaudio",
         "einops",
         "humanfriednly",
         "torch-complex",

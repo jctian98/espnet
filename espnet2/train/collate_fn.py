@@ -1,11 +1,17 @@
+import logging
 import math
+import random
 from typing import Collection, Dict, List, Tuple, Union
 
 import numpy as np
+import scipy.signal
+import soundfile
 import torch
 from typeguard import typechecked
 
 from espnet.nets.pytorch_backend.nets_utils import pad_list
+
+logger = logging.getLogger(__name__)
 
 
 class CommonCollateFn:
@@ -40,7 +46,7 @@ class CommonCollateFn:
 
 
 class HuBERTCollateFn(CommonCollateFn):
-    """Functor class of common_collate_fn()"""
+    """HuBERT functor class of common_collate_fn()"""
 
     @typechecked
     def __init__(
@@ -419,3 +425,190 @@ def common_collate_fn(
 
     output = (uttids, output)
     return output
+
+
+class UniversaCollateFn(CommonCollateFn):
+    """Universa functor class of common_collate_fn()"""
+
+    @typechecked
+    def __init__(
+        self,
+        numerical_metrics: List[str],
+        categorical_metrics: List[str],
+        sequential_metric: bool = False,
+        float_pad_value: Union[float, int] = 0.0,
+        metric_pad_value: Union[float, int] = -1e10,
+        metric_token_pad_value: int = 0,
+        int_pad_value: int = -32768,
+        not_sequence: Collection[str] = (),
+        randomize: bool = True,
+    ):
+        """
+        Args:
+            numerical_metrics: List of numerical metric names
+            categorical_metrics: List of categorical metric names
+            sequential_metric: If True, treat the metrics as a sequence
+            float_pad_value: Padding value for float tensors
+            metric_pad_value: Padding value for metrics
+            metric_token_pad_value: Padding value for metric tokens
+            int_pad_value: Padding value for int tensors
+            not_sequence: List of keys that should not be treated as sequences
+            randomize: If True, shuffle the order of the tokens in the tensor
+        """
+        if len(numerical_metrics) == 0 and len(categorical_metrics) == 0:
+            raise ValueError(
+                "At least one of numerical_metrics or categorical_metrics should be provided."
+            )
+
+        super().__init__(
+            float_pad_value=float_pad_value,
+            int_pad_value=int_pad_value,
+            not_sequence=not_sequence,
+        )
+        self.numerical_metrics = numerical_metrics
+        self.categorical_metrics = categorical_metrics
+        self.sequential_metric = sequential_metric
+        self.metric_pad_value = metric_pad_value
+        self.metric_token_pad_value = metric_token_pad_value
+        self.randomize = randomize
+
+        if self.randomize:
+            # Shuffle the items to randomize their order
+            logger.info("Randomizing the order of the metrics.")
+        else:
+            logger.info(
+                "Sorting the items by their keys to maintain a consistent order (from metric2id)."
+            )
+        if len(numerical_metrics) == 0 and len(categorical_metrics) == 0:
+            raise ValueError(
+                "At least one of numerical_metrics or categorical_metrics should be provided."
+            )
+
+    def __repr__(self):
+        return (
+            f"{self.__class__}(float_pad_value={self.float_pad_value}, "
+            f"int_pad_value={self.float_pad_value}), "
+            f"metric_pad_value={self.metric_pad_value}",
+            f"metric_token_pad_value={self.metric_token_pad_value}",
+            f"numerical_metrics={self.numerical_metrics}",
+            f"categorical_metrics={self.categorical_metrics}",
+            f"sequential_metric={self.sequential_metric}",
+        )
+
+    def _create_metric_sequence_tensor(self, metrics_dict):
+        """
+        Creates a tensor from randomized metric label and value token pairs.
+
+        Args:
+            metrics_dict: Dictionary where each value is a tuple of
+                        (metric_label_token, metric_value_token) as integers
+
+        Returns:
+            torch.Tensor: A 1D tensor containing interleaved label and value tokens
+        """
+        # Get all items as a list
+        items = list(metrics_dict.items())
+
+        if self.randomize:
+            # Shuffle the items to randomize their order
+            random.shuffle(items)
+        else:
+            # Sort the items by their keys to maintain a consistent order
+            items.sort(key=lambda x: x[0])
+
+        # Initialize empty list to collect tokens
+        all_tokens = []
+
+        # Interleave label and value tokens
+        for _, (label_token, value_token) in items:
+            all_tokens.append(label_token)
+            all_tokens.append(value_token)
+
+        # Convert the list of integers to a tensor
+        return torch.tensor(all_tokens)
+
+    def __call__(
+        self, data: Collection[Tuple[str, Dict[str, np.ndarray]]]
+    ) -> Tuple[List[str], Dict[str, torch.Tensor]]:
+
+        uttids = [u for u, _ in data]
+        data = [d for _, d in data]
+
+        assert all(set(data[0]) == set(d) for d in data), "dict-keys mismatching"
+        assert all(
+            not k.endswith("_lengths") for k in data[0]
+        ), f"*_lengths is reserved: {list(data[0])}"
+
+        output = {}
+        for key in data[0]:
+            if key == "metrics":
+                continue
+
+            # NOTE(kamo):
+            # Each models, which accepts these values finally, are responsible
+            # to repaint the pad_value to the desired value for each tasks.
+            if data[0][key].dtype.kind == "i":
+                pad_value = self.int_pad_value
+            else:
+                pad_value = self.float_pad_value
+
+            array_list = [d[key] for d in data]
+
+            # Assume the first axis is length:
+            # tensor_list: Batch x (Length, ...)
+            tensor_list = [torch.from_numpy(a) for a in array_list]
+            # tensor: (Batch, Length, ...)
+            tensor = pad_list(tensor_list, pad_value)
+            output[key] = tensor
+
+            # lens: (Batch,)
+            if key not in self.not_sequence:
+                lens = torch.tensor([d[key].shape[0] for d in data], dtype=torch.long)
+                output[key + "_lengths"] = lens
+
+        if data[0].get("metrics") is None:
+            # For inference
+            output = (uttids, output)
+            return output
+
+        metrics_data = [d["metrics"] for d in data]
+        output_metrics = {}
+        if self.sequential_metric:
+            # NOTE(jiatong): For sequential option, we use metric_meta_label
+            # and metric_value
+            assert (
+                len(self.numerical_metrics) == 0
+            ), "numerical_metrics should be empty for sequential option"
+            tensor_list = []
+            for m in metrics_data:
+                token_sequence = self._create_metric_sequence_tensor(m)
+                tensor_list.append(token_sequence)
+            output_metric_tokens = pad_list(tensor_list, self.metric_token_pad_value)
+            lens = torch.tensor(
+                [token_info.shape[0] for token_info in tensor_list], dtype=torch.long
+            )
+            output_metrics["metric_token"] = output_metric_tokens
+            output_metrics["metric_token_lengths"] = lens
+        else:
+            for metric in self.numerical_metrics:
+                tensor = torch.tensor(
+                    [m.get(metric, self.metric_pad_value) for m in metrics_data]
+                )
+                output_metrics[metric] = tensor
+            for metric in self.categorical_metrics:
+                # NOTE(jiatong): For parallel (non-sequential) option, we do not
+                # use metric_meta_label. only use metric_value
+
+                tensor = torch.tensor(
+                    [
+                        m.get(metric, (0, self.metric_token_pad_value))[-1]
+                        for m in metrics_data
+                    ]
+                )
+                output_metrics[metric] = tensor
+
+        output["metrics"] = output_metrics
+
+        output = (uttids, output)
+
+        return output
