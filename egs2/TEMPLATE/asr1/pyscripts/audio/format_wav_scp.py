@@ -257,8 +257,12 @@ def main():
                 for line in tqdm(fscp):
                     uttid, wavpath = line.strip().split(None, 1)
 
+                    if wavpath == "None":
+                        wavpath, subtypes = None, None
+                        wave, rate = None, None
+
                     # B.a. Without segments and using pipe inputs
-                    if wavpath.endswith("|"):
+                    elif wavpath.endswith("|"):
                         if args.multi_columns_input:
                             raise RuntimeError(
                                 "Not supporting multi_columns wav.scp for inputs by"
@@ -290,6 +294,13 @@ def main():
     with out_num_samples.open("w") as fnum_samples:
         for uttid, (wave, rate), wavpath, subtypes in tqdm(generator()):
             save_asis = True
+
+            if wavpath is None:
+                # FIXME(jiatong): need to fix for segment cases 
+                # (segments also return None for wavpath)
+                fnum_samples.write(f"{uttid} 8000\n")
+                continue
+
             if args.fs is not None and args.fs != rate:
                 # FIXME(kamo): To use sox?
                 wave = resampy.resample(wave, rate, args.fs, axis=0)
