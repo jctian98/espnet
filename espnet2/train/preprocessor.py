@@ -2918,9 +2918,9 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         new_data["prefix_len"] = np.array([prefix_len])
 
         # finally, sanity check
-        if np.isin(self.unk, new_data["dec_seq"]):
-            logging.warning(f"Unknown token is in the decoder seq. UID: {uid}")
-            self.diagnose(new_data)
+        # if np.isin(self.unk, new_data["dec_seq"]):
+        #     logging.warning(f"Unknown token is in the decoder seq. UID: {uid}")
+        #     self.diagnose(new_data)
 
         # self.diagnose(new_data) # For debug. Enable this to check the sequence format
 

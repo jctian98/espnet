@@ -3,50 +3,49 @@
 # Copyright 2025 Jinchuan Tian
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
-# Before running this script, make sure you install ESPnet as a python package:
-# pip install espnet
+"""
+A demo code for ESPnet OpusLM inference. Before you run:
+
+1. install Pytorch with CUDA support. Recommend to use Pytorch > 2.4.0
+  pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+2. install ESPnet by pip
+  pip install espnet
+"""
 
 from espnet2.bin.speechlm_inference_chat import SpeechLM, SpeechLMTask
 from espnet2.speechlm.inference_utils import TaskOrientedWriter
 from pathlib import Path
 
-# from espnet2.tasks.ssl import SSLTask
-# xeus_model, xeus_train_args = SSLTask.build_model_from_file(
-#     None,
-#     '/work/nvme/bbjs/jtian1/tools/hf_home/hub/models--espnet--OpusLM_1.7B_Anneal/snapshots/7b448184574c954d99f0b8cf7329b11072af7e57/kmeans/model.pth',
-#     'cpu',
-# )
-
-
-import kaldiio
-mat = kaldiio.load_mat('dump/raw_codec_ssl_tts_librispeech/test_clean/data/wav_codec_ssl_ESPnet.1.ark:1444843')
-mat = mat.reshape(-1, 9)
-for x in mat:
-    print(x, flush=True)
-
-model = SpeechLM.from_pretrained("./cache", device='cuda')
+# Loading model
+model = SpeechLM.from_pretrained("espnet/OpusLM_1.7B_Anneal", device='cuda')
 processor = SpeechLMTask.build_preprocess_fn(
     model.train_args, train=False,
     online_tokenization=True,
     online_tokenizers=model.online_tokenizers
 )
 
+# check input format
+model.helper("codec_ssl_tts")
+
+# TTS input
 input = {
     "raw_input": True,
     "task": "codec_ssl_tts",
-    "text": "Yuny is a stupid pig",
+    "text": "This is a text-to-speech system",
     "utt2spk": '/work/hdd/bbjs/shared/corpora/librispeech/LibriSpeech/test-clean/1089/134686/1089-134686-0001.flac'
 }
 
+output_dir="tmp_out"
 writer = TaskOrientedWriter(
     train_args=model.train_args,
     task="codec_ssl_tts",
-    output_dir=Path("tmp_out"),
+    output_dir=Path(output_dir),
     rank=0,
     inference_config=model.inference_config,
 )
 
+example_name="foo"
 segments = model(input, processor)
-writer.write('foo', segments)
+writer.write(example_name, segments)
 
 

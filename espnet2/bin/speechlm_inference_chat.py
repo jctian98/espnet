@@ -205,15 +205,20 @@ class SpeechLM:
         """Build AudioCoding instance from the pretrained model.
 
         Args:
-            model_tag (Optional[str]): Model tag of the pretrained models.
-                Currently, the tags of espnet_model_zoo are supported.
+            model_tag (Optional[str]): Model tag or folder for the pre-trained model.
+                (1) Check the OpusLM collections for possible models tags:
+                * https://huggingface.co/espnet
+                
+                (2) The local folder should contain the following files:
+                * model.pth: the pre-trained model weights;
+                * config.yaml: the model configuration during training
+                * decode_default.yaml: the decoding configuration
 
         Returns:
-            AudioCoding: AudioCoding instance.
+            SpeechLM object.
 
         """
-        # Set logging if it's not set by inference(), like being called 
-        # outside this script
+        # Set logging if it's not set yet
         if not logging.getLogger().handlers:
             logging.basicConfig(
                 level=logging.INFO,
@@ -230,22 +235,32 @@ class SpeechLM:
                     from huggingface_hub import snapshot_download
                 except ImportError:
                     logging.error(
-                        "huggingface-hub is not installed. "
-                        "Please install via `pip install huggingface-hub"
+                        "It seems you try to use a pre-trained SpeechLM on HF, "
+                        "but huggingface-hub is not installed. "
+                        "Please install via `pip install huggingface-hub and retry"
                     )
                     raise
                 cache_dir = Path(snapshot_download(model_tag_or_path))
                 logging.info(f"Using ESPnet HF model {model_tag_or_path}")
 
-            # (2) always use the train_args and model file from the HF_repo
-            kwargs["train_config"] = cache_dir / 'config.yaml'
-            kwargs["model_file"] = cache_dir / 'model.pth'
+            # (2) find checkpoints
+            cache_ops = {
+                "train_config": cache_dir / 'config.yaml',
+                "model_file": cache_dir / 'model.pth'
+            }
+            for key, value in cache_ops.items():
+                if key in kwargs:
+                    logging.info(
+                        f"Avoid loading {key}={value} as it is specified by user."
+                    )
+                else:
+                    kwargs[key] = value
             
             # (3) parse inference config
             if "inference_config" in kwargs: # specified by author
                 inference_config = kwargs["inference_config"]
             else: # default config in HF_repo
-                inference_config = cache_dir / 'decode_general.yaml'
+                inference_config = cache_dir / 'decode_default.yaml'
             logging.info(f"Using the inference configuration: {inference_config}")
 
             inference_config = yaml.safe_load(open(inference_config, "r"))

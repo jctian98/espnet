@@ -337,18 +337,18 @@ def task_template_helper(task: str):
     string += "result = model(data)\n"
     string += "*" * 50 + "\n"
 
-    string += "You will receive the result as:\n"
-    string += "*" * 50 + "\n"
-    string += "result = {\n"
-    for name, modality, _type in task.data_triplets[task.n_conditions:]:
-        if modality in ["codec", "ssl", "codec_ssl", "spk"]:
-            string += f"  {name}: List[torch.Tensor], # audio waveform \n"
-        elif modality in ["text_bpe"]:
-            string += f"  {name}: <text-string>,\n"
-        else:
-            raise ValueError("Unrecognized modality")
-    string += "}\n"
-    string += "*" * 50 + "\n"
+    # string += "You will receive the result as:\n"
+    # string += "*" * 50 + "\n"
+    # string += "result = {\n"
+    # for name, modality, _type in task.data_triplets[task.n_conditions:]:
+    #     if modality in ["codec", "ssl", "codec_ssl", "spk"]:
+    #         string += f"  {name}: List[torch.Tensor], # audio waveform \n"
+    #     elif modality in ["text_bpe"]:
+    #         string += f"  {name}: <text-string>,\n"
+    #     else:
+    #         raise ValueError("Unrecognized modality")
+    # string += "}\n"
+    # string += "*" * 50 + "\n"
 
     return string
 
