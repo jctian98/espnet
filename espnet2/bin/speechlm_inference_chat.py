@@ -90,6 +90,7 @@ class SpeechLM:
         teacher forcing.
         """
         dec_seq = data.get("dec_seq")
+        conti_feats = data.get("conti_feats")
 
         # (1) Initialization
         self.model.decoders.reset()

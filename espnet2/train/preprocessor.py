@@ -2420,6 +2420,7 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         asr_apply_time_mask: bool = False,
         asr_time_mask_config: dict = dict(),
         is_dpo: bool = False,
+        generation_cfg_ratio: float = 0.0,
     ):
         self.token_list = token_list.copy()
         self.token_bias = token_bias.copy()
@@ -2431,6 +2432,8 @@ class SpeechLMPreprocessor(AbsPreprocessor):
         self.pad = token_list.index("<pad>")
         self.unk = token_list.index("<unk>")
         self.is_dpo = is_dpo
+        self.generation_cfg_ratio = generation_cfg_ratio if train else 0.0
+
 
         assert not (
             "codec" in token_bias and "codec_ssl" in token_bias
@@ -2677,10 +2680,21 @@ class SpeechLMPreprocessor(AbsPreprocessor):
                 dec_seq = dec_seq[3:]
                 loss_mask = loss_mask[3:]
 
+        
+
+        # (4) Classifier-Free Guidance (CFG)
+        if random.random() < self.generation_cfg_ratio:
+            # CFG is only applied when the training targets contain audio
+            if sum([
+                int(modality in ['codec_ssl', 'codec', 'ssl'] and target)
+                for _, modality, _, _, target in data_tuples
+            ]) >= 1:
+                dec_seq = dec_seq * loss_mask
+        
         new_data["dec_seq"] = dec_seq
         new_data["loss_mask"] = loss_mask
 
-        # (4) continuous features
+        # (5) continuous features
         new_conti_feats = []
         modality_identifier_indices = np.nonzero(
             (dec_seq[:, 0] >= 32) & (dec_seq[:, 0] < 64)

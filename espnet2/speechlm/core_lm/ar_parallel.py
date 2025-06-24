@@ -43,7 +43,8 @@ class ARParallelLM(AbsCoreLM):
             self.lm_head.weight = self.emb.weight
 
         self.head_emb = torch.nn.Embedding(12, transformer.d_model, padding_idx=0)
-        # self.head_emb.weight[0] = 0
+        with torch.no_grad():
+            self.head_emb.weight[0] = 0
 
         if hasattr(self.decoders, "init_embeddings"):
             self.decoders.init_embeddings(self.emb, self.lm_head)
@@ -85,7 +86,9 @@ class ARParallelLM(AbsCoreLM):
 
         # transformer output
         x = self.decoders(x)
-        x = x.unsqueeze(2) + self.head_emb.weight.tile(1, 1, 1, 1)[:, :, : self.nq]
+
+        head_pos = torch.arange(self.nq, dtype=torch.long, device=x.device)
+        x = x.unsqueeze(2) + self.head_emb(head_pos).tile(1, 1, 1, 1)
 
         # NOTE(Jinchuan): We don't apply lm_head here naively. It is implemented in
         # loss module to save computing.

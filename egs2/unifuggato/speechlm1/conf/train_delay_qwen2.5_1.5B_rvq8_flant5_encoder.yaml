@@ -30,7 +30,7 @@ loss_region: target
 batch_type: numel
 batch_bins: 12000
 num_iters_per_epoch: 15000
-epoch_this_run: 1
+# epoch_this_run: 1
 max_epoch: 50
 num_workers: 4
 drop_last_iter: true

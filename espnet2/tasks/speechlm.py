@@ -317,6 +317,13 @@ class SpeechLMTask(AbsTask):
             default=0.0,
             help="Z loss weight to reduce the magnituede of logits",
         )
+        group.add_argument(
+            "--generation_cfg_ratio",
+            type=float,
+            default=0.0,
+            help="The ratio of discarding conditions in generative examples "
+                 "When hit, all conditions will be paddings"
+        )
 
         for class_choices in cls.class_choices_list:
             # Append --<name> and --<name>_conf.
@@ -369,6 +376,7 @@ class SpeechLMTask(AbsTask):
             speech_ssl_encoder_conf=getattr(args, "speech_ssl_encoder_conf", {}),
             text_encoder_conf=getattr(args, "text_encoder_conf", {}),
             is_dpo=args.model == "dpo",
+            generation_cfg_ratio=getattr(args, "generation_cfg_ratio", 0.0)
         )
 
         return retval
