@@ -1,19 +1,24 @@
 # General
 # GH200 GPUs with 96G memory; 1.7B model. Revise according to your GPU memory
-nproc: 6
+nproc: 1
 dtype: bfloat16
 
-# search algorithm parameters
-search_algo: topk_sampling
-# search_algo: teacher_force
-sampling_temperature: 0.7
-minlenratio: 0.05
-# maxlenratio: 10
-top_k: 30
-seed: 0
+codec_ssl:
+    search_algo: topk_sampling
+    sampling_temperature: 0.7
+    topk: 30
+    length_method: absolute
+    maxlen: 2048
+    minlen: 50
+    tokenizer:
+        codec_choice: ESPnet
+        codec_fs: 16000
+        hf_model_tag: ftshijt/espnet_codec_dac_large_v1.4_360epoch
 
-# offline tokenizer
-codec_conf:
-    codec_choice: ESPnet
-    codec_fs: 16000
-    hf_model_tag: ftshijt/espnet_codec_dac_large_v1.4_360epoch
+text_bpe:
+    search_algo: greedy_search
+    sampling_temperature: 0.8
+    topk: 20
+    length_method: absolute
+    maxlen: 2048
+    minlen: 1

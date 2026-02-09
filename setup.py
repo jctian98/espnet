@@ -43,7 +43,7 @@ requirements = {
         # SPK
         "asteroid_filterbanks==0.4.0",
         # UASR
-        "editdistance",
+        # "editdistance",
         # fix CI error due to the use of deprecated functions
         # https://github.com/espnet/espnet/actions/runs/3174416926/jobs/5171182884#step:8:8419
         # https://importlib-metadata.readthedocs.io/en/latest/history.html#v5-0-0
@@ -53,7 +53,7 @@ requirements = {
     "train": [
         "matplotlib",
         "pillow==9.5.0",
-        "editdistance==0.5.2",
+        # "editdistance==0.5.2",
         "wandb",
         "tensorboard>=1.14",
     ],

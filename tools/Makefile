@@ -125,7 +125,7 @@ sounfile_test: espnet.done
 	. ./activate_python.sh && python3 ./test_soundfile.py
 
 chainer.done: espnet.done
-	. ./activate_python.sh && ./installers/install_chainer.sh "${CUDA_VERSION}"
+	. ./activate_python.sh &&  echo "skip chainer"
 	touch chainer.done
 
 warp-transducer.done: pytorch.done conda_packages.done
@@ -139,7 +139,7 @@ chainer_ctc.done: chainer.done
 ifeq ($(strip $(CPU_ONLY)),)
 	[ -n "${CUDA_HOME}" ] || { echo -e "Error: CUDA_HOME is not set.\n    $$ . ./setup_cuda_env.sh <cuda-root>"; exit 1; }
 endif
-	. ./activate_python.sh && ./installers/install_chainer_ctc.sh ${WITH_OMP}
+	. ./activate_python.sh && &&  echo "skip chainer ctc"
 	touch chainer_ctc.done
 
 nkf.done:
