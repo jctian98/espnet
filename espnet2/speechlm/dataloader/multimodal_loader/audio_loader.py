@@ -16,7 +16,7 @@ except ImportError:
     kaldiio = None
 
 try:
-    from arkive import audio_read
+    import arkive
 except ImportError:
     raise ImportError(
         "arkive is not installed. Install at https://github.com/wanchichen/arkive"
@@ -93,7 +93,7 @@ class ArkiveAudioReader:
         start_time = row.get("start_time", None)
         end_time = row.get("end_time", None)
 
-        data = audio_read(
+        data = arkive.audio_read(
             row["path"],
             start_offset=row["start_byte_offset"],
             file_size=row["file_size_bytes"],

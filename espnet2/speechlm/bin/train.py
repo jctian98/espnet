@@ -97,8 +97,8 @@ def get_parser() -> argparse.ArgumentParser:
     data_group.add_argument(
         "--stats-dir",
         type=Path,
-        required=True,
-        help="The folder of length statistics",
+        default=None,
+        help="The folder of length statistics (required for espnet backend)",
     )
     data_group.add_argument(
         "--save-loader-state",
@@ -219,46 +219,83 @@ def main():
     # (4) build data iterator factory
     loading_config = train_config["data_loading"]
     preprocessor = job_template.build_preprocessor()
+    backend = loading_config.get("backend", "espnet")
+    logger.info(f"Data loading backend: {backend}")
 
     loader_state_dir = args.output_dir / "loader_state"
     loader_state_dir.mkdir(parents=True, exist_ok=True)
 
-    train_iterator_factory = DataIteratorFactory(
-        args.train_unregistered_specifier,
-        args.train_registered_specifier,
-        stats_dir=args.stats_dir,
-        loader_state=loader_state_dir / f"train_{rank}_{world_size}.json",
-        collate_fn=preprocessor.collate_fn,
-        batchfy_method=loading_config["batchfy_method"],
-        batch_size=loading_config["batch_size"],
-        num_workers=loading_config["num_workers"],
-        rank=rank,
-        world_size=world_size,
-        shuffle=True,
-        save_loader_state=args.save_loader_state,
-        seed=loading_config["seed"],
-    )
+    if backend == "anc_data":
+        from espnet2.speechlm.dataloader.anc_iterator import AncIteratorFactory
 
-    valid_iterator_factories = dict()
-    valid_iterator_args = dict(
-        stats_dir=args.stats_dir,
-        collate_fn=preprocessor.collate_fn,
-        batchfy_method=loading_config["batchfy_method"],
-        batch_size=loading_config["batch_size"],
-        num_workers=loading_config["num_workers"],
-        rank=rank,
-        world_size=world_size,
-        shuffle=False,
-    )
-
-    for spec in args.valid_unregistered_specifier.split():
-        factory = DataIteratorFactory(
-            unregistered_specifier=spec, **valid_iterator_args
+        train_iterator_factory = AncIteratorFactory(
+            paths=args.train_registered_specifier,
+            collate_fn=preprocessor.collate_fn,
+            batch_size=loading_config["batch_size"],
+            rank=rank,
+            world_size=world_size,
+            shuffle=True,
+            seed=loading_config["seed"],
+            num_workers=loading_config["num_workers"],
+            loader_state=str(loader_state_dir),
+            ckpt_interval=loading_config.get("ckpt_interval"),
         )
-        valid_iterator_factories[spec] = factory
-    for spec in args.valid_registered_specifier.split():
-        factory = DataIteratorFactory(registered_specifier=spec, **valid_iterator_args)
-        valid_iterator_factories[spec] = factory
+
+        valid_iterator_factories = {}
+        for spec in args.valid_registered_specifier.split():
+            valid_iterator_factories[spec] = AncIteratorFactory(
+                paths=spec,
+                collate_fn=preprocessor.collate_fn,
+                batch_size=loading_config["batch_size"],
+                rank=rank,
+                world_size=world_size,
+                shuffle=False,
+                repeat=False,
+                seed=loading_config["seed"],
+                num_workers=loading_config["num_workers"],
+            )
+    else:
+        if args.stats_dir is None:
+            raise ValueError("--stats-dir is required for espnet data backend")
+
+        train_iterator_factory = DataIteratorFactory(
+            args.train_unregistered_specifier,
+            args.train_registered_specifier,
+            stats_dir=args.stats_dir,
+            loader_state=loader_state_dir / f"train_{rank}_{world_size}.json",
+            collate_fn=preprocessor.collate_fn,
+            batchfy_method=loading_config["batchfy_method"],
+            batch_size=loading_config["batch_size"],
+            num_workers=loading_config["num_workers"],
+            rank=rank,
+            world_size=world_size,
+            shuffle=True,
+            save_loader_state=args.save_loader_state,
+            seed=loading_config["seed"],
+        )
+
+        valid_iterator_factories = {}
+        valid_iterator_args = dict(
+            stats_dir=args.stats_dir,
+            collate_fn=preprocessor.collate_fn,
+            batchfy_method=loading_config["batchfy_method"],
+            batch_size=loading_config["batch_size"],
+            num_workers=loading_config["num_workers"],
+            rank=rank,
+            world_size=world_size,
+            shuffle=False,
+        )
+
+        for spec in args.valid_unregistered_specifier.split():
+            factory = DataIteratorFactory(
+                unregistered_specifier=spec, **valid_iterator_args
+            )
+            valid_iterator_factories[spec] = factory
+        for spec in args.valid_registered_specifier.split():
+            factory = DataIteratorFactory(
+                registered_specifier=spec, **valid_iterator_args
+            )
+            valid_iterator_factories[spec] = factory
 
     # (5) build model
     model = job_template.build_model()
