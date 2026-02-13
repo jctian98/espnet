@@ -190,12 +190,7 @@ def apply_fsdp_qwen3(
         gradient_divide_factor = parallel_dims.fsdp_gradient_divide_factor
 
     def _shard(module: nn.Module):
-        if any(p.requires_grad for p in module.parameters()):
-            fully_shard(module, **fsdp_config)
-
-    def _unshard(module: nn.Module):
-        if hasattr(module, "unshard"):
-            module.unshard()
+        fully_shard(module, **fsdp_config)
 
     # (2.1) input embeddings
     _shard(model.model.embed_tokens)
@@ -217,30 +212,15 @@ def apply_fsdp_qwen3(
     _shard(model.lm_head)
     _shard(model.stream_emb)
 
-    # (2.4) multimodal_io_dict and adaptor
-    for module in model.multimodal_io_dict.values():
-        if isinstance(module, nn.Module):
-            _shard(module)
-
-    for module in model.adaptor.values():
-        if isinstance(module, nn.Module):
-            _shard(module)
-
     # (2.5) root
+    # NOTE(Jinchuan): The FSDP2 DTensor operation doesn't support convolution ops.
+    # We put all remained peripheral modules to the root FSDP2 unit, where the conv
+    # ops can always stay locally and will not trigger the DTensor check.
+    # We still don't know why the modules wrapped by root FSDP2 unit will not 
+    # trigger the DTensor check, but it works in practice.
     fully_shard(model, **fsdp_config)
 
-    # (3) unshard peripheral modules
-    _unshard(model.model.norm)
-    _unshard(model.lm_head)
-    _unshard(model.stream_emb)
-    for module in model.multimodal_io_dict.values():
-        if isinstance(module, nn.Module):
-            _unshard(module)
-    for module in model.adaptor.values():
-        if isinstance(module, nn.Module):
-            _unshard(module)
-
-    # (4) Set up explicit FSDP prefetching when EP is enabled
+    # (3) Set up explicit FSDP prefetching when EP is enabled
     _setup_fsdp_prefetching(model, ep_enabled)
 
     return model
