@@ -36,8 +36,8 @@ trainer:
     type: titan
     freeze_param: [multimodal_io_dict.discrete_audio, multimodal_io_dict.continuous_audio]
     max_step: 200000
-    save_interval: 2000
-    log_interval: 20
+    save_interval: 5000
+    log_interval: 100
     gradient_accumulation_steps: 4
 
     optimizer:
@@ -71,4 +71,4 @@ trainer:
         # FSDP
         reshard_after_forward: false
         dp_shard: -1
-        dp_replicate: 4
+        dp_replicate: 5

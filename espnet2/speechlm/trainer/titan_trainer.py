@@ -132,13 +132,18 @@ class TitanTrainer:
         self.parallel_dims, self.local_rank, self.global_rank = init_parallel_dims(
             titan_config
         )
+
+        self.device = torch.device(f"cuda:{self.local_rank}")
+
+        # NOTE: Do NOT call model.to(self.device) here. The full model (~60GB
+        # for 30B MoE) would be materialized on every GPU before FSDP shards it,
+        # wasting memory. Instead, apply_fsdp_qwen3 moves modules to GPU one
+        # FSDP unit at a time, so peak GPU memory is ~1 layer instead of the
+        # entire model.
         parallel_strategy = titan_config.get("parallel_strategy", "qwen3")
         parallelize_fn = parallel_strategies[parallel_strategy]
         self.model = parallelize_fn(model, self.parallel_dims, titan_config)
 
-        # Move model to device
-        self.device = torch.device(f"cuda:{self.local_rank}")
-        self.model = self.model.to(self.device)
         logger.info(model_summary(model))
 
         # Build optimizer and scheduler (after parallelization)
@@ -409,12 +414,11 @@ class TitanTrainer:
             for k in accumulated_stats:
                 accumulated_stats[k] = accumulated_stats[k] / grad_accum
 
-            # Gradient clipping (torchtitan version handles DTensor/FSDP2/EP)
+            # Gradient clipping (torchtitan version handles DTensor/FSDP2)
             grad_norm = dist_utils.clip_grad_norm_(
                 self.model.parameters(),
                 self.max_norm,
                 foreach=True,
-                ep_enabled=self.parallel_dims.ep_enabled,
             )
 
             # Optimizer step
@@ -454,11 +458,17 @@ class TitanTrainer:
         for name, factory in self.valid_data_factories.items():
             iterator = factory.build_iter()
 
+            # Sync the number of validation steps across ranks so that all
+            # ranks iterate the same number of times (avoiding all_reduce deadlock).
+            local_len = torch.tensor([len(iterator)], device=self.device, dtype=torch.long)
+            dist.all_reduce(local_len, op=dist.ReduceOp.MIN)
+            num_valid_steps = int(local_len.item())
+
             # Collect all batch metrics
             all_stats = {}
 
             with torch.no_grad():
-                for batch in iterator:
+                for _, batch in zip(range(num_valid_steps), iterator):
                     batch = to_device(batch, self.device, dtype=self.dtype)
                     out = self.model(**batch)
 
