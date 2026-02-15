@@ -28,7 +28,7 @@ preprocessor:
 data_loading:
     backend: anc_data
     batchfy_method: pack
-    batch_size: 2048
+    batch_size: 32768
     seed: 43
     num_workers: 6
 
@@ -63,7 +63,7 @@ trainer:
         gradient_clipping: 5.0
 
         # Activation Checkpointing (ratio of transformer layers, 0.0-1.0)
-        activation_checkpoint: 0.0
+        activation_checkpoint: 1.0
 
         # Torch Compile (applied to transformer layers)
         compile: false

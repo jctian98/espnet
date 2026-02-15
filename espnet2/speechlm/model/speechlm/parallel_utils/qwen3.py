@@ -30,6 +30,7 @@ from typing import Any, Dict
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     checkpoint_wrapper,
 )
@@ -95,6 +96,41 @@ def parallelize_qwen3_hf(
     return model
 
 
+def memory_efficient_load_balancing_loss(
+    gate_logits, num_experts=None, top_k=2, attention_mask=None,
+):
+    """Memory-efficient load balancing loss — numerically identical to HF version.
+
+    Eliminates the massive one_hot tensor (N_total, K, E) by using bincount.
+    Processes per-layer to avoid concatenating all router logits.
+
+    Memory: O(E) instead of O(N_total * K * E).
+    """
+    if gate_logits is None or not isinstance(gate_logits, tuple) or len(gate_logits) == 0:
+        return 0
+
+    device = gate_logits[0].device
+    total_tokens = 0
+    expert_counts = torch.zeros(num_experts, device=device)
+    router_prob_sum = torch.zeros(num_experts, device=device)
+
+    for layer_gate in gate_logits:
+        total_tokens += layer_gate.shape[0]
+
+        routing_weights = F.softmax(layer_gate, dim=-1, dtype=torch.float)
+        _, selected_experts = torch.topk(routing_weights, top_k, dim=-1)
+
+        expert_counts = expert_counts + torch.bincount(
+            selected_experts.reshape(-1), minlength=num_experts
+        ).float()
+        router_prob_sum = router_prob_sum + routing_weights.sum(dim=0)
+
+    tokens_per_expert = expert_counts / total_tokens
+    router_prob_per_expert = router_prob_sum / total_tokens
+
+    return torch.dot(tokens_per_expert, router_prob_per_expert) * num_experts
+
+
 def apply_grouped_moe_qwen3(model: nn.Module) -> nn.Module:
     """Replace MoE blocks with GroupedMoeBlock for fused grouped_mm.
 
@@ -117,13 +153,10 @@ def apply_grouped_moe_qwen3(model: nn.Module) -> nn.Module:
             has_moe = True
 
     if has_moe:
-        # Attach load balancing loss function for MoE auxiliary loss.
-        # This is a standalone function in HF transformers that must be
-        # explicitly bound to the model for ParallelLLM._loss() to use it.
-        from transformers.models.qwen3_moe.modeling_qwen3_moe import (
-            load_balancing_loss_func,
-        )
-        model.load_balancing_loss_func = load_balancing_loss_func
+        # Attach memory-efficient load balancing loss for MoE auxiliary loss.
+        # Replaces HF's load_balancing_loss_func which causes ~18GB memory spike
+        # from one_hot expansion. Our version uses bincount for O(E) memory.
+        model.load_balancing_loss_func = memory_efficient_load_balancing_loss
 
     return model
 
@@ -273,6 +306,7 @@ def apply_torch_compile_qwen3(
         f"Applied torch.compile (mode={compile_mode}) to "
         f"{len(model.model.layers)} layers"
     )
+
     return model
 
 

@@ -13,3 +13,4 @@ duckdb
 datasets
 polars
 torchtitan
+liger-kernel

@@ -9,6 +9,8 @@ import transformers
 from transformers import AutoConfig
 from transformers.cache_utils import DynamicCache
 
+from espnet2.speechlm.model.speechlm.lm.loss import fused_cross_entropy_loss
+
 
 def ParallelHFModel(model_hf_tag, **kwargs):
     """Factory function to create a parallel multimodal LLM from HuggingFace model.
@@ -51,7 +53,6 @@ def build_parallel_hf_class(model_hf_tag):
             multimodal_io,
             vocab,
             vocab_intervals,
-            max_loss_interval: int = 13192,
             compile_transformer_body: bool = False,
             freeze_text_embeddings: bool = False,
             **kwargs,
@@ -62,7 +63,6 @@ def build_parallel_hf_class(model_hf_tag):
                 pretrained_model_name_or_path: HF model path or identifier
                 multimodal_io: Dict of IO handlers for different modalities
                 vocab_intervals: Token range mappings for each modality
-                max_loss_interval: Max interval size for efficient loss computation
                 compile_transformer_body: Whether to torch.compile the model
                 freeze_text_embeddings: Whether to freeze pretrained text embeddings
                     by zeroing their gradients during backward pass
@@ -148,28 +148,20 @@ def build_parallel_hf_class(model_hf_tag):
                         model.config.hidden_size,
                     )
 
-            # (5) Create loss computation intervals for efficient softmax
-            # Split large vocabularies into smaller intervals to avoid OOM
+            # (5) Compute multimodal vocabulary range for stream 1+ loss
+            # Vocab order: [special_tokens | text | multimodal_tokens]
+            # Stream 0 uses full vocab; streams 1+ use only multimodal range
             model.vocab = vocab
             model.vocab_intervals = vocab_intervals
-            model.loss_intervals = list()
-            for io_name, intervals in vocab_intervals.items():
-                # Skip text/special tokens (handled with full softmax in stream 0)
-                if io_name == "text" or io_name == "special_token":
+            multimodal_start = None
+            multimodal_end = None
+            for name, intervals in vocab_intervals.items():
+                if name in ("text", "special_token"):
                     continue
-
-                cur_start, end = intervals[0]
-                # Split intervals if they exceed max_loss_interval size
-                for _, end in intervals[1:]:
-                    if end - cur_start <= max_loss_interval:
-                        continue
-                    else:
-                        model.loss_intervals.append((cur_start, end))
-                        cur_start = end
-
-                # Add final interval if any tokens remain
-                if end > cur_start:
-                    model.loss_intervals.append((cur_start, end))
+                for s, e in intervals:
+                    multimodal_start = s if multimodal_start is None else min(multimodal_start, s)
+                    multimodal_end = e if multimodal_end is None else max(multimodal_end, e)
+            model.multimodal_vocab_range = (multimodal_start, multimodal_end) if multimodal_start is not None else None
 
             # (6) Optionally compile the transformer body for faster execution
             if compile_transformer_body:
@@ -233,12 +225,31 @@ def build_parallel_hf_class(model_hf_tag):
             stream_emb[:, :, 0] = 0.0  # First stream uses base representation
             hidden_states = hidden_states + stream_emb
 
-            loss, stats = self._loss(
-                input_ids=input_ids,
-                hidden_states=hidden_states,
-                loss_mask=loss_mask,
-                router_logits=getattr(output, "router_logits", None),
+            ce_loss, count, stats = fused_cross_entropy_loss(
+                hidden_states,
+                input_ids,
+                loss_mask,
+                self.lm_head.weight,
+                self.multimodal_vocab_range,
+                self.num_stream,
+                self.training,
             )
+
+            # MoE load balance loss
+            router_logits = getattr(output, "router_logits", None)
+            if router_logits is not None and hasattr(self, "load_balancing_loss_func"):
+                aux_loss = self.load_balancing_loss_func(
+                    router_logits,
+                    self.config.num_experts,
+                    self.config.num_experts_per_tok,
+                )
+                loss = ce_loss + aux_loss * self.config.router_aux_loss_coef
+                stats["ce_loss"] = ce_loss.clone().detach()
+                stats["load_balance_loss"] = aux_loss.clone().detach()
+            else:
+                loss = ce_loss
+
+            stats["loss"] = loss.clone().detach()
             return {"loss": loss, "stats": stats}
 
         def _embed(self, input_ids, kwargs):
@@ -341,118 +352,6 @@ def build_parallel_hf_class(model_hf_tag):
                 input_embeds = input_embeds + 0.0 * dummy_out.sum()
 
             return input_embeds
-
-        def _loss(self, hidden_states, input_ids, loss_mask, router_logits):
-            """Compute multimodal language modeling loss.
-
-            Uses full vocabulary softmax for first stream (text/special tokens)
-            and interval-based softmax for other streams (audio/discrete tokens)
-            to efficiently handle large vocabularies.
-
-            Args:
-                hidden_states: Model outputs [batch, seq_len, streams, hidden_dim]
-                input_ids: Target tokens [batch, seq_len, streams]
-                loss_mask: Loss weights per token [batch, seq_len, streams]
-                router_logits: Tuple of router logits from MoE layers, each
-                    [batch * seq_len, num_experts]. Used to compute load
-                    balancing auxiliary loss.
-
-            Returns:
-                Tuple of (loss tensor, stats dict with loss/accuracy metrics)
-            """
-            assert input_ids.size() == loss_mask.size()
-            assert hidden_states.size()[:3] == loss_mask.size()
-
-            # Convert DTensor to regular tensor for matmul operations
-            lm_head_weight = self.lm_head.weight
-            if hasattr(lm_head_weight, "full_tensor"):
-                lm_head_weight = lm_head_weight.full_tensor()
-
-            # Shift for next-token prediction
-            hidden_states = hidden_states[:, :-1]
-            input_ids = input_ids[:, 1:]
-            loss_mask = loss_mask[:, 1:]
-
-            # Initialize loss and accuracy tensors
-            loss = torch.zeros_like(loss_mask)
-            acc = torch.zeros_like(loss_mask).bool()
-            stats = dict()
-
-            # Stream 0: Full vocabulary softmax
-            this_mask = torch.zeros_like(input_ids).bool()
-            this_mask[:, :, 0] = True
-
-            this_logits = hidden_states[this_mask]
-            this_logits = torch.matmul(this_logits, lm_head_weight.T)
-            this_targets = input_ids[this_mask]
-
-            this_loss = torch.nn.functional.cross_entropy(
-                this_logits,
-                this_targets,
-                reduction="none",
-                ignore_index=0,
-            )
-            loss.masked_scatter_(this_mask, this_loss)
-            if not self.training:
-                this_acc = this_logits.argmax(-1) == this_targets
-                acc.masked_scatter_(this_mask, this_acc)
-
-            # Streams 1+: Interval-based softmax for discrete modalities
-            # Process each vocabulary interval separately to avoid OOM
-            residual_ids = input_ids[:, :, 1:]
-            for start, end in self.loss_intervals:
-                # Find tokens in this interval
-                this_mask = torch.logical_and(residual_ids >= start, residual_ids < end)
-                if this_mask.int().sum() == 0:
-                    continue
-                # Compute loss only for vocabulary subset [start:end]
-                this_logits = hidden_states[:, :, 1:][this_mask]
-                this_logits = torch.matmul(
-                    this_logits, lm_head_weight[start:end].T
-                )
-                # Adjust targets to interval-relative indices
-                this_targets = residual_ids[this_mask] - start
-                this_loss = torch.nn.functional.cross_entropy(
-                    this_logits,
-                    this_targets,
-                    reduction="none",
-                )
-                loss[:, :, 1:].masked_scatter_(this_mask, this_loss)
-                if not self.training:
-                    this_acc = this_logits.argmax(-1) == this_targets
-                    acc[:, :, 1:].masked_scatter_(this_mask, this_acc)
-
-            # Apply loss masks and compute weighted average
-            loss = loss * loss_mask
-            count = (loss_mask != 0.0).float()
-            ce_loss = loss.sum() / count[:, :, 0].sum()
-
-            # Compute accuracy statistics during evaluation
-            if not self.training:
-                acc = acc.float()
-                stats["acc"] = acc.sum() / count.sum()  # Overall accuracy
-                # Per-stream accuracy for debugging
-                for n in range(self.num_stream):
-                    this_count = count[:, :, n].sum()
-                    if this_count > 0:
-                        stats[f"acc_layer{n}"] = acc[:, :, n].sum() / this_count
-
-            # MoE load balance loss (computed from router_logits)
-            if router_logits is not None and hasattr(self, "load_balancing_loss_func"):
-                aux_loss = self.load_balancing_loss_func(
-                    router_logits,
-                    self.config.num_experts,
-                    self.config.num_experts_per_tok,
-                )
-                loss = ce_loss + aux_loss * self.config.router_aux_loss_coef
-                stats["ce_loss"] = ce_loss.clone().detach()
-                stats["load_balance_loss"] = aux_loss.clone().detach()
-            else:
-                loss = ce_loss
-
-            stats["loss"] = loss.clone().detach()
-
-            return loss, stats
 
         # Below are all inference logics
         @torch.no_grad()
