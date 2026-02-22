@@ -80,9 +80,7 @@ def parallelize_qwen3_hf(
 
     # 2. Activation Checkpointing
     ac_ratio = titan_config.get("activation_checkpoint", 0.0)
-    if ac_ratio:
-        if ac_ratio is True:
-            ac_ratio = 1.0
+    if ac_ratio > 0.0:
         model = apply_activation_checkpoint_qwen3(model, ratio=ac_ratio)
 
     # 3. Torch Compile
@@ -221,8 +219,6 @@ def apply_fsdp_qwen3(
     _move_and_shard(model.lm_head)
     _move_and_shard(model.stream_emb)
 
-    torch.cuda.empty_cache()
-
     # (2.4) root — moves remaining modules (multimodal_io_dict, adaptor, etc.)
     # NOTE(Jinchuan): The FSDP2 DTensor operation doesn't support convolution ops.
     # We put all remained peripheral modules to the root FSDP2 unit, where the conv
@@ -232,7 +228,6 @@ def apply_fsdp_qwen3(
     model.to(device)
     fully_shard(model, **fsdp_config)
 
-    torch.cuda.empty_cache()
     logger.info(
         f"Incremental FSDP init complete — peak GPU memory: "
         f"{torch.cuda.max_memory_allocated(device) / 1e9:.1f} GB"

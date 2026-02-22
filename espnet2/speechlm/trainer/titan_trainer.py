@@ -125,21 +125,14 @@ class TitanTrainer:
         dtype_str = titan_config.get("mixed_precision_param", "bfloat16")
         self.dtype = getattr(torch, dtype_str)
         self.max_norm = titan_config.get("gradient_clipping", 1.0)
-        model = model.to(dtype=self.dtype)
-        logger.info(f"Cast model parameters to {self.dtype}")
 
-        # Apply all possible parallelization strategies
         self.parallel_dims, self.local_rank, self.global_rank = init_parallel_dims(
             titan_config
         )
 
         self.device = torch.device(f"cuda:{self.local_rank}")
+        model = model.to(device=self.device, dtype=self.dtype)
 
-        # NOTE: Do NOT call model.to(self.device) here. The full model (~60GB
-        # for 30B MoE) would be materialized on every GPU before FSDP shards it,
-        # wasting memory. Instead, apply_fsdp_qwen3 moves modules to GPU one
-        # FSDP unit at a time, so peak GPU memory is ~1 layer instead of the
-        # entire model.
         parallel_strategy = titan_config.get("parallel_strategy", "qwen3")
         parallelize_fn = parallel_strategies[parallel_strategy]
         self.model = parallelize_fn(model, self.parallel_dims, titan_config)

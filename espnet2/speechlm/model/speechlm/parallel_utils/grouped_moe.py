@@ -95,10 +95,20 @@ class GroupedExperts(nn.Module):
             torch.stack([e.up_proj.weight for e in experts])
         )
 
+        self.hidden_size = self.w1.shape[2]
+        self.intermediate_size = self.w1.shape[1]
+
         logger.info(
             f"GroupedExperts: stacked {self.num_experts} experts, "
             f"w1={list(self.w1.shape)}, w2={list(self.w2.shape)}, "
             f"w3={list(self.w3.shape)}"
+        )
+
+    def extra_repr(self) -> str:
+        return (
+            f"num_experts={self.num_experts}, "
+            f"hidden_size={self.hidden_size}, "
+            f"intermediate_size={self.intermediate_size}"
         )
 
     def forward(
@@ -161,13 +171,6 @@ class GroupedMoeBlock(Qwen3MoeSparseMoeBlock):
             f"top_k={self.top_k}, using grouped_mm"
         )
 
-    @staticmethod
-    def _record(ev_list, tag):
-        """Record a CUDA event into ev_list for profiling."""
-        ev = torch.cuda.Event(enable_timing=True)
-        ev.record()
-        ev_list.append((tag, ev))
-
     def forward(self, hidden_states: torch.Tensor) -> tuple:
         """Forward pass with fused grouped_mm computation.
 
@@ -179,16 +182,9 @@ class GroupedMoeBlock(Qwen3MoeSparseMoeBlock):
                 - output: shape (batch, seq_len, hidden_dim)
                 - router_logits: shape (batch * seq_len, num_experts)
         """
-        ev = getattr(self, "_profile_events", None)
-        # Only profile the first forward pass; skip AC recompute
-        do_profile = ev is not None and len(ev) == 0
-
         bsz, seq_len, hidden_dim = hidden_states.shape
         num_tokens = bsz * seq_len
         hidden_states_flat = hidden_states.view(-1, hidden_dim)
-
-        if do_profile:
-            self._record(ev, "start")
 
         # --- Step 1: Route ---
         router_logits = self.gate(hidden_states_flat)  # (T, E)
@@ -199,9 +195,6 @@ class GroupedMoeBlock(Qwen3MoeSparseMoeBlock):
         if self.norm_topk_prob:
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         routing_weights = routing_weights.to(hidden_states_flat.dtype)
-
-        if do_profile:
-            self._record(ev, "route")
 
         # --- Step 2: Sort by expert index ---
         flat_expert_indices = selected_experts.view(-1)  # (T*K,)
@@ -224,14 +217,8 @@ class GroupedMoeBlock(Qwen3MoeSparseMoeBlock):
             max=self.num_experts,
         ).long()
 
-        if do_profile:
-            self._record(ev, "sort")
-
         # --- Step 3: Process via grouped_mm (with padding for alignment) ---
         processed_tokens = self.experts(sorted_tokens, num_tokens_per_expert)
-
-        if do_profile:
-            self._record(ev, "experts")
 
         # --- Step 4: Unsort via gather + weighted sum ---
         # Compute inverse permutation via cheap int-only scatter (2MB),
@@ -250,8 +237,5 @@ class GroupedMoeBlock(Qwen3MoeSparseMoeBlock):
             unsorted.view(num_tokens, self.top_k, hidden_dim)
             * routing_weights.unsqueeze(-1)
         ).sum(dim=1)
-
-        if do_profile:
-            self._record(ev, "unsort")
 
         return final_output.view(bsz, seq_len, hidden_dim), router_logits

@@ -63,10 +63,10 @@ trainer:
         gradient_clipping: 5.0
 
         # Activation Checkpointing (ratio of transformer layers, 0.0-1.0)
-        activation_checkpoint: 1.0
+        activation_checkpoint: 0.8
 
         # Torch Compile (applied to transformer layers)
-        compile: false
+        compile: true
 
         # FSDP
         reshard_after_forward: true
