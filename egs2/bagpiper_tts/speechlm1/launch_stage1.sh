@@ -30,7 +30,7 @@ exp_dir=exp/bagpiper_tts_stage1_libritts_r_genshin
 mkdir -p ${exp_dir}
 
 inference_config=conf/inference.yaml
-inference_step=350512
+inference_step=269064
 inference_nj=8
 inference_workers=3
 
