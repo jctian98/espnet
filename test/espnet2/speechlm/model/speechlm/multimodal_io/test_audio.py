@@ -1,6 +1,7 @@
 """Tests for KmeansModel, DiscreteAudioIO, and ContinuousAudioIO."""
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -571,3 +572,57 @@ class TestContinuousAudioIO:
         assert conti_feat[0] == after_length
         assert conti_feat[1].shape == (before_length, feat_dim)
         assert loss_mask.shape == (after_length, 1)
+
+
+@pytest.mark.parametrize(
+    ("model_tag", "model_class_name"),
+    [
+        ("Qwen/Qwen2.5-Omni-7B", "Qwen2_5OmniForConditionalGeneration"),
+        ("Qwen/Qwen3-Omni-30B-A3B-Instruct", "Qwen3OmniMoeForConditionalGeneration"),
+    ],
+)
+def test_continuous_audio_loads_only_audio_extractor(model_tag, model_class_name):
+    """Avoid initializing the omni image and video processors for audio input."""
+    import transformers
+
+    thinker = SimpleNamespace(
+        model=object(),
+        visual=object(),
+        lm_head=object(),
+        audio_tower=SimpleNamespace(config=SimpleNamespace(output_dim=2048)),
+    )
+    thinker.to = Mock(return_value=thinker)
+    model_loader = Mock(return_value=SimpleNamespace(thinker=thinker))
+    extractor = SimpleNamespace(sampling_rate=16000, hop_length=160)
+    extractor_loader = Mock(return_value=extractor)
+    model_class = getattr(transformers, model_class_name, None)
+    if model_class is None:
+        # Older local Transformers versions do not expose the Qwen3 class.
+        model_patch = patch.object(
+            transformers,
+            model_class_name,
+            SimpleNamespace(from_pretrained=model_loader),
+            create=True,
+        )
+    else:
+        model_patch = patch.object(model_class, "from_pretrained", model_loader)
+
+    with (
+        model_patch,
+        patch.object(
+            transformers.AutoFeatureExtractor, "from_pretrained", extractor_loader
+        ),
+        patch.object(
+            transformers.AutoProcessor,
+            "from_pretrained",
+            side_effect=AssertionError("The video processor must not be loaded"),
+        ),
+    ):
+        io = ContinuousAudioIO(encoder_hf_model_tag=model_tag)
+
+    model_loader.assert_called_once_with(
+        model_tag, attn_implementation=None, torch_dtype=torch.bfloat16
+    )
+    extractor_loader.assert_called_once_with(model_tag)
+    assert io.processor is extractor
+    assert (io.sample_rate, io.hop_length, io.d_model) == (16000, 160, 2048)

@@ -919,12 +919,13 @@ class ContinuousAudioIO(AbsIO):
             del full_model.thinker.lm_head  # Remove output head
             self.model = full_model.thinker.to(self.device)
 
-            # Load processor for audio preprocessing
-            from transformers import AutoProcessor
+            # Load only the audio extractor. AutoProcessor also initializes the
+            # image and video processors, which require torchvision.
+            from transformers import AutoFeatureExtractor
 
-            self.processor = AutoProcessor.from_pretrained(
+            self.processor = AutoFeatureExtractor.from_pretrained(
                 self.encoder_hf_model_tag
-            ).feature_extractor
+            )
 
             # Set model attributes
             self.d_model = self.model.audio_tower.config.output_dim
